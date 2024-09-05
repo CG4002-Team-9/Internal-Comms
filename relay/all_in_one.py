@@ -1,36 +1,33 @@
 '''
   ltr:
-  - CRC
-  - update the packet structure
+  - recheck the packet structure
+  - checkpoint analysis
   - separate vest, hand, leg
-  - re-handshake when too many checksum wrong or ACK missing
-  - (for consideration) : reset one of the beetle, (ble is not disconnected but all the data hold on beetle is reset) 
-  - resend bullet data when reestablish connection
+  - (for consideration) : reset one of the beetle, (ble is not disconnected but all the data hold on beetle is reset) (hand)
+  - resend bullet data when reestablish connection (hand)
   - pass data to ultra96
 
 
   curr:
   - handshake + re-handshake when disconnect
   - ack timeout, resend
+  - CRC
   - seq number : ignore if recevied the same seq + resend if ACk is not match what had sent, send ack with the recevied seq, update seq every packet send,
   - can handle fragmentation
+  - re-handshake when too many checksum wrong or ACK missing
   - support kick, shoot, update, data, syn, ack
   - sending random data
 '''
 
-'''
-    - seqReceived of each packet type separately ->  if not might received packet seq 0 and of each packet then crash
-    - when resync halfway
-    - the other data seq sill update even though havent send ACK --> sol: wtv data is discarded, player need to perform the action again
-    - (here first)one DATA packet
-'''
-
 import bluepy.btle as btle
 from bluepy.btle import Peripheral, BTLEDisconnectError
+from crc import Calculator, Crc8
 import time
 import struct
-import random
 import numpy as np  #uint8
+import random
+
+crc8 = Calculator(Crc8.CCITT)
 
 MAC_ADDR = "F4:B8:5E:42:67:1B"
 SERVICE_UUID = "0000dfb0-0000-1000-8000-00805f9b34fb"
@@ -87,27 +84,48 @@ class MyDelegate(btle.DefaultDelegate):
         self.packetType = ''
         self.receivedDeviceID = 0
         self.seqReceived = 0
+        self.invalidPacketCounter = 0
+        self.packetCounter = 0 # to be used with invalidpacketconter, reset the above value every 5 packets
 
     def handleNotification(self, cHandle, data):
+        global isHandshakeRequire
+        self.packetCounter += 1
+        if (self.packetCounter == 5):
+            self.packetCounter = 0
+            self.invalidPacketCounter = 0
+        
         #print("    Packet Receive : ", data)
         self.rxPacketBuffer += data
 
-        if (len(self.rxPacketBuffer) == 20):                        # TODO: checksum
-            self.payload = self.rxPacketBuffer
-            self.packetType, self.receivedDeviceID, self.seqReceived, self.payload = struct.unpack("<cBB17s", self.payload)
-            self.packetType = chr(self.packetType[0])
-            print(" Received: ", self.packetType, " Seq: ", self.seqReceived)
+        # check fragmentation + checksum
+        if (len(self.rxPacketBuffer) == 20):
+            self.payload, crcReceived = struct.unpack("<19sB", self.rxPacketBuffer)
+            if (crc8.verify(self.payload, crcReceived)):
+                self.packetType, self.receivedDeviceID, self.seqReceived, self.payload = struct.unpack("<cBB16s", self.payload)
+                self.packetType = chr(self.packetType[0])
+                self.isRxPacketReady = True
+                print(" Received: ", self.packetType, " Seq: ", self.seqReceived)
+                
+            else:
+                self.invalidPacketCounter += 1
+                print("Checksum failed.")
 
-            self.isRxPacketReady = True
             self.rxPacketBuffer = b''
+            return
 
         elif (len(self.rxPacketBuffer) > 20):
             # reset the buffer
             self.rxPacketBuffer = b''   
+
         else:
+            self.invalidPacketCounter += 1
             print(" Fragmented Packet ", len(self.rxPacketBuffer))
             self.isRxPacketReady = False
-            # too many fragmanetaion fault -> rehandshake        
+            # too many fragmanetaion fault -> rehandshake
+        
+        if (self.invalidPacketCounter == 5):
+            isHandshakeRequire = True
+            #rehandshake is reauired
 
 class BLEConnection:
     def __init__(self, macAddr, serviceUUID, charUUID):
@@ -116,7 +134,6 @@ class BLEConnection:
         self.charUUID = charUUID
         self.device = Peripheral()
         self.beetleSerial = None            # beetleSerial.write(bytes)
-        self.isHandshakeRequire = True
         self.isAllDataReceived = False
 
     def establishConnection(self):
@@ -133,23 +150,26 @@ class BLEConnection:
         return True
 
     def sendSYN(self, seq):
-        packet = bytes(SYN, 'utf-8') + bytes([np.uint8(updatePacket['deviceID']),np.uint8(seq)]) + bytes([0] * 17)
+        packet = bytes(SYN, 'utf-8') + bytes([np.uint8(updatePacket['deviceID']),np.uint8(seq)]) + bytes([0] * 16)
+        packet = packet + (bytes)([np.uint8(crc8.checksum(packet))])
         self.beetleSerial.write(packet)
         #self.beetleSerial.write(bytes(SYN + str(beetleID) + 18*'0', encoding="utf-8"))
 
     def sendACK(self, seq):
         print("    Send ACK: ", seq)
-        packet = bytes(ACK, 'utf-8') + bytes([np.uint8(updatePacket['deviceID']), np.uint8(seq)]) + bytes([0] * 17)
+        packet = bytes(ACK, 'utf-8') + bytes([np.uint8(updatePacket['deviceID']), np.uint8(seq)]) + bytes([0] * 16)
+        packet = packet + (bytes)([np.uint8(crc8.checksum(packet))])
         self.beetleSerial.write(packet)
     
     def sendUPDATE(self):
         updatePacket['seq'] += 1
-        while True: # Keep sending until ACK received bytes(ACK + str(beetleID) + str(seq) + 17*'0', encoding="utf-8")
+        for i in range(5): # Keep sending until ACK received bytes(ACK + str(beetleID) + str(seq) + 17*'0', encoding="utf-8")
             packet = bytes(UPDATE, 'utf-8') + bytes([np.uint8(updatePacket['deviceID']),
                                             np.uint8(updatePacket['seq']),
                                             np.uint8(updatePacket['audio']),
                                             np.uint8(updatePacket['reload']),
-                                            np.uint8(updatePacket['bullet'])]) + bytes([0] * 14)
+                                            np.uint8(updatePacket['bullet'])]) + bytes([0] * 13)
+            packet = packet + (bytes)([np.uint8(crc8.checksum(packet))])
             self.beetleSerial.write(packet)
             print(">> Send UPDATE to the beetle: ", updatePacket['seq'])
 
@@ -160,16 +180,20 @@ class BLEConnection:
                     return
                 elif (self.device.delegate.packetType ==  DATA): #if other data type will ignore
                     self.parseRxPacket() # update + send to server
-        
+            else:
+                self.device.delegate.invalidPacketCounter += 1
+                if (self.invalidPacketCounter == 5):
+                    isHandshakeRequire = True
 
     def performHandShake(self):
+        global isHandshakeRequire
         print(">> Performing Handshake...")
         print(">> Send SYN to the beetle")
         self.sendSYN(0)
         if (self.device.waitForNotifications(5) and self.device.delegate.isRxPacketReady):
             if (self.device.delegate.packetType ==  ACK):
                 self.sendACK(0)
-                self.isHandshakeRequire = False
+                isHandshakeRequire = False
                 print(">> Handshake Done.")
                 return True
         print(">> Handshake Failed.")
@@ -177,7 +201,7 @@ class BLEConnection:
 
     def updateData(self):
         dataPacket['seq']  = self.device.delegate.seqReceived
-        unpackFormat = "<hhhhhh" + str(5) + "s"
+        unpackFormat = "<hhhhhh" + str(4) + "s"
         dataPacket['accX'], dataPacket['accY'], dataPacket['accZ'], dataPacket['gyrX'], dataPacket['gyrY'], dataPacket['gyrZ'], padding = struct.unpack(unpackFormat, self.device.delegate.payload)       # need beetleID?
         print( "    Updated ", dataPacket)
 
@@ -190,7 +214,7 @@ class BLEConnection:
             self.sendACK(seqReceived)
             if (shootPacket['seq'] != seqReceived): #if nvr received this before, then update
                 shootPacket['seq']  = seqReceived
-                unpackFormat = "<BB" + str(15) + "s"
+                unpackFormat = "<BB" + str(14) + "s"
                 shootPacket['hit'], shootPacket['bullet'], padding = struct.unpack(unpackFormat, payload)
                 print( "    Updated ", shootPacket)
 
@@ -211,21 +235,26 @@ class BLEConnection:
                 kickPacket['seq']  = seqReceived
                 print( "    Updated ", kickPacket)
         else:
+            self.device.delegate.invalidPacketCounter += 1
+            if (self.invalidPacketCounter == 5):
+                isHandshakeRequire = True
             print(" Unpack: ", packetType, payload)
         
         return packetType
+
+isHandshakeRequire = True
 
 if __name__ == '__main__':
     # main program
     while True:
         ble1 = BLEConnection(MAC_ADDR, SERVICE_UUID, CHAR_UUID)
         ble1.establishConnection()
-        ble1.isHandshakeRequired = True
+        isHandshakeRequire = True
         try:
             while True:
                 ble1.device.delegate.isRxPacketReady = False
-                if (ble1.isHandshakeRequire):
-                    ble1.isHandshakeRequire = not ble1.performHandShake()
+                if (isHandshakeRequire):
+                    isHandshakeRequire = not ble1.performHandShake()
                 else: # if (no re-handshake needed)    
                     if(ble1.device.waitForNotifications(1) and ble1.device.delegate.isRxPacketReady):
                         ble1.parseRxPacket()

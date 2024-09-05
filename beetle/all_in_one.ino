@@ -1,22 +1,25 @@
 /*
   ltr:
-  - CRC
-  - update the packet structure
-  - separate vest, hand, leg
+  - recheck the packet structure
   - re-handshake when too many checksum wrong or ACK missing
-  - (for consideration) : reset one of the beetle, (ble is not disconnected but all the data hold on beetle is reset) -> EEPROM
-  - resend bullet data when reestablish connection (Only hand)
+  - checkpoint analysis
+  - separate vest, hand, leg
+  - (for consideration) : reset one of the beetle, (ble is not disconnected but all the data hold on beetle is reset) (hand)
+  - resend bullet data when reestablish connection (hand)
   - pass data to ultra96
 
 
   curr:
-  - seq number
   - handshake + re-handshake when disconnect
   - ack timeout, resend
+  - CRC
+  - seq number : ignore if recevied the same seq + resend if ACk is not match what had sent, send ack with the recevied seq, update seq every packet send,
   - can handle fragmentation
   - support kick, shoot, update, data, syn, ack
   - sending random data
 */
+
+#include "CRC8.h"
 
 // Packet Types
 #define SYN 'S'
@@ -46,7 +49,8 @@ struct AckPacket {
   char packetType = ACK;
   uint8_t deviceID = DEVICE_ID;
   uint8_t seq = 0;
-  byte padding[17] = {0};
+  byte padding[16] = {0};
+  uint8_t crc;
 };
 
 struct ShootPacket {
@@ -55,14 +59,16 @@ struct ShootPacket {
   uint8_t seq = 0;
   uint8_t hit = 0;
   uint8_t bullet = 0;
-  byte padding[15] = {0};
+  byte padding[14] = {0};
+  uint8_t crc;
 };
 
 struct KickPacket {
   char packetType = KICK;
   uint8_t deviceID = DEVICE_ID;
   uint8_t seq = 0;
-  byte padding[17] = {0};
+  byte padding[16] = {0};
+  uint8_t crc;
 };
 
 struct DataPacket{
@@ -75,7 +81,8 @@ struct DataPacket{
   int16_t gyrX;
   int16_t gyrY;
   int16_t gyrZ;
-  byte padding[5] = {0};
+  byte padding[4] = {0};
+  uint8_t crc;
 };
 
 String buffer;
@@ -84,6 +91,7 @@ AckPacket ackPacket;
 ShootPacket shootPacket;
 DataPacket dataPacket;
 KickPacket kickPacket;
+CRC8 crc;
 uint8_t globalSeq = 0;
 
 bool isHandshaking = false; // track re-handshake case during handshake
@@ -95,10 +103,16 @@ void getShootPacket() {
   shootPacket.seq = ++globalSeq;
   shootPacket.hit = random(0, 2);
   shootPacket.bullet = playerState.bullet;
+  crc.reset();
+  crc.add((byte *) &shootPacket, sizeof(shootPacket) - 1);
+  shootPacket.crc = crc.calc();
 }
 
 void getKickPacket() {
   kickPacket.seq = ++globalSeq;
+  crc.reset();
+  crc.add((byte *) &kickPacket, sizeof(kickPacket) - 1);
+  kickPacket.crc = crc.calc();
 }
 
 void getDataPacket(uint8_t seq) {
@@ -109,10 +123,16 @@ void getDataPacket(uint8_t seq) {
   dataPacket.gyrX = random(-10000, 10000);
   dataPacket.gyrY = random(-10000, 10000);
   dataPacket.gyrZ = random(-10000, 10000);
+  crc.reset();
+  crc.add((byte *) &dataPacket, sizeof(dataPacket) - 1);
+  dataPacket.crc = crc.calc();
 }
 
 void sendACK(uint8_t seq) {
   ackPacket.seq = seq;
+  crc.reset();
+  crc.add((byte *) &ackPacket, sizeof(ackPacket) - 1);
+  ackPacket.crc = crc.calc();
   Serial.write((byte *) &ackPacket, sizeof(ackPacket));
 }
 
@@ -144,9 +164,17 @@ void handshake(uint8_t seq) {
 char handleRxPacket() { // TODO: checksum
   char buffer[20];
   Serial.readBytes(buffer, 20);
+
+  uint8_t crcReceived = buffer[19];
+  crc.reset();
+  crc.add(buffer, 19);
+  if (!(crc.calc() == crcReceived)) {
+    return INVALID_PACKET;
+  }
+  
   char packetType = buffer[0];
   uint8_t seqReceived = buffer[2];
-  
+    
   switch (packetType) {
     // update from server have higher priority than sending data to relay 
     // DATA > UPDATE > SHOOT
