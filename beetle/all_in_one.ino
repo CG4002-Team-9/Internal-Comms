@@ -230,11 +230,12 @@ void loop() {
 
   else if (isHandshaked && (isAction == 20)) { //trigger by IMU && isHandshaked
     sendDATA();
-    // removing this assuming that the bullet wont reset when player dies
-    // if (Serial.available() >= 20) { //clear the serial (ignored) wait relay to send them again
-    //   buffer = Serial.readString();
-    //   buffer = "";
-    // }
-    delay(isAction);
+    if (Serial.available() >= 20) {
+      //clear the serial (ignored) wait relay to send them again, there could be the case where multiple 
+      //of the same packets waiting in the buffer -> keep sending multiple ack to response
+      buffer = Serial.readString();
+      buffer = "";
+    }
+    delay(100); // for relay to send any update if it's discarded during sending data
   }
 }
