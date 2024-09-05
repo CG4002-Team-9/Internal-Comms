@@ -1,16 +1,16 @@
 /*
   ltr:
-  - seq number
   - CRC
   - update the packet structure
   - separate vest, hand, leg
   - re-handshake when too many checksum wrong or ACK missing
-  - (for consideration) : reset one of the beetle, (ble is not disconnected but all the data hold on beetle is reset)
-  - resend bullet data when reestablish connection
+  - (for consideration) : reset one of the beetle, (ble is not disconnected but all the data hold on beetle is reset) -> EEPROM
+  - resend bullet data when reestablish connection (Only hand)
   - pass data to ultra96
 
 
   curr:
+  - seq number
   - handshake + re-handshake when disconnect
   - ack timeout, resend
   - can handle fragmentation
@@ -36,6 +36,7 @@
 #define DEVICE_ID 2
 
 struct PlayerState {
+  uint8_t updateSeq = 99;
   uint8_t audio = 0;
   uint8_t reload = 0;
   uint8_t bullet = 6;
@@ -43,21 +44,25 @@ struct PlayerState {
 
 struct AckPacket {
   char packetType = ACK;
-  byte padding[19] = {0};
+  uint8_t deviceID = DEVICE_ID;
+  uint8_t seq = 0;
+  byte padding[17] = {0};
 };
 
 struct ShootPacket {
   char packetType = SHOOT;
   uint8_t deviceID = DEVICE_ID;
+  uint8_t seq = 0;
   uint8_t hit = 0;
   uint8_t bullet = 0;
-  byte padding[16] = {0};
+  byte padding[15] = {0};
 };
 
 struct KickPacket {
   char packetType = KICK;
   uint8_t deviceID = DEVICE_ID;
-  byte padding[18] = {0};
+  uint8_t seq = 0;
+  byte padding[17] = {0};
 };
 
 struct DataPacket{
@@ -79,14 +84,21 @@ AckPacket ackPacket;
 ShootPacket shootPacket;
 DataPacket dataPacket;
 KickPacket kickPacket;
+uint8_t globalSeq = 0;
 
-bool isHandshaking = false; // track re-handshake case
+bool isHandshaking = false; // track re-handshake case during handshake
 bool isHandshaked = false;
 bool isWaitingForAck = false;
+int waitingAckSeq;
 
 void getShootPacket() {
+  shootPacket.seq = ++globalSeq;
   shootPacket.hit = random(0, 2);
   shootPacket.bullet = playerState.bullet;
+}
+
+void getKickPacket() {
+  kickPacket.seq = ++globalSeq;
 }
 
 void getDataPacket(uint8_t seq) {
@@ -99,12 +111,13 @@ void getDataPacket(uint8_t seq) {
   dataPacket.gyrZ = random(-10000, 10000);
 }
 
-void sendACK() {
+void sendACK(uint8_t seq) {
+  ackPacket.seq = seq;
   Serial.write((byte *) &ackPacket, sizeof(ackPacket));
 }
 
 void sendDATA() {
-  for (uint8_t seq = 0; seq < 40; seq++) {
+  for (uint8_t seq = 1; seq <= 40; seq++) {
     getDataPacket(seq);
     Serial.write((byte *) &dataPacket, sizeof(dataPacket));
     delay(50);
@@ -119,122 +132,109 @@ void sendKICK() {
   Serial.write((byte *) &kickPacket, sizeof(kickPacket));
 }
 
-// void updatePlayerState() {
-//   Serial.println(buffer);
-//   playerState.audio = buffer[2] - '0';
-//   playerState.reload = buffer[3] - '0';
-//   playerState.bullet = buffer[4] - '0';
-  
-// }
-
-void handshake() {
-  sendACK();
+void handshake(uint8_t seq) {
+  sendACK(seq);
   isHandshaked = false;
-  waitAck(500);
+  waitAck(500, seq);
   if (!isWaitingForAck) { 
     isHandshaked = true;
   }
 }
 
-char handleRxPacket() { // TODO: checksum + seq check
-  //buffer = "";
-  String serialBuffer = Serial.readString();
-  char packetType;
+char handleRxPacket() { // TODO: checksum
+  char buffer[20];
+  Serial.readBytes(buffer, 20);
+  char packetType = buffer[0];
+  uint8_t seqReceived = buffer[2];
+  
+  switch (packetType) {
+    // update from server have higher priority than sending data to relay 
+    // DATA > UPDATE > SHOOT
+    case UPDATE:
+      sendACK(seqReceived);
+      if (playerState.updateSeq != seqReceived) {
+        // only update if not the seq that already received
+        playerState.updateSeq = buffer[2];
+        playerState.audio = buffer[3];
+        playerState.reload = buffer[4];
+        playerState.bullet = buffer[5];
+      }
+      // might wanna reset the audio and reload after the audio is played
+      break;
+    
+    case SYN:
+      // start of handshake
+      handshake(seqReceived);
+      break;
 
-  while (serialBuffer.length() >= 20) {
-    String buffer = serialBuffer.substring(0, 20); // Get the first 20 characters
-    char packetType = char(buffer[0]);
-    switch (packetType) {
-      // update from server have higher priority than sending data to relay 
-      // DATA(can be ignored by server) > UPDATE > SHOOT
-      case UPDATE:
-        playerState.audio = buffer[2] - '0';
-        playerState.reload = buffer[3] - '0';
-        playerState.bullet = buffer[4] - '0';
-        sendACK();
-        // might wanna reset the audio and reload after the audio is played
-        break;
-      
-      case SYN:             // start of handshake
-        handshake();       // isWaitingForAck = false;  for the re-handshake case
-        break;
-
-      case ACK:
+    case ACK:
+      //check seq otherwise ignore ACK
+      if (waitingAckSeq == seqReceived) {
         isWaitingForAck = false;
-        break;
+      }
+      break;
 
-      default:
-        //discard invalid packet
-        break;
-    }
-    serialBuffer = serialBuffer.substring(20); // Remove the processed chunk from the string
+    default:
+      //discard invalid packet
+      break;
   }
   return packetType;
 }
 
-void waitAck(int ms) {  // wait for ACK, timeout
+void waitAck(int ms, uint8_t seq) {  // wait for ACK, timeout
+  waitingAckSeq = seq;
   for (int i = 0; i < ms; i++) {
-    if (Serial.available()) {
+    if (Serial.available() >= 20) {
       handleRxPacket();
-      return;
+      if (!isWaitingForAck) {
+        return;
+      }
     }
     delay(1);
   }
 }
-
-/*void parsePacket(char packetType) {
-  switch (packetType) {
-    case UPDATE:
-      sendACK();
-      updatePlayerData();
-      break;
-    
-    case SYN:                   // start of handshake
-      handshake();
-      break;
-
-    default:
-      break;
-
-  }
-}*/
 
 void setup() {
   Serial.begin(115200);
 }
 
 void loop() {
-  if (Serial.available()) {
+  if (Serial.available() >= 20) {
     handleRxPacket();
   }
     
-  int isKick = random(0,10000); 
-  int isShoot = random(0,10000);
-  int isAction = random(0,10000);
+  int isKick = random(0,5000); 
+  int isShoot = random(0, 2000);
+  int isAction = random(0, 5000);
 
-  if (isHandshaked && (isAction == 100)) { //trigger by IMU && isHandshaked
-    sendDATA();
-    if (Serial.available()) { //clear the serial (ignored) wait relay to send them again
-      buffer = Serial.readString();
-      buffer = "";
-    }
-  }
   
-  else if (isHandshaked && (isShoot == 4)) { //trigger by the button && isHandshaked (if bullet > 0, bullet - 1)
+  if (isHandshaked && (isShoot == 4)) { //trigger by the button && isHandshaked (if bullet > 0, bullet - 1)
     getShootPacket();
     do {
       sendSHOOT();
       isWaitingForAck = true;
-      waitAck(500);
+      waitAck(500, shootPacket.seq);
     } while (isWaitingForAck);
+    delay(isAction);
   }
 
   else if (isHandshaked && (isKick == 4)) { //trigger by flex sensor && isHandshaked  
+    getKickPacket();
     do {
       sendKICK();
       isWaitingForAck = true;
-      waitAck(500);
-    } while (isWaitingForAck);  
+      waitAck(500, kickPacket.seq);
+    } while (isWaitingForAck);
+    delay(isAction);
+  }
+
+  else if (isHandshaked && (isAction == 20)) { //trigger by IMU && isHandshaked
+    sendDATA();
+    // removing this assuming that the bullet wont reset when player dies
+    // if (Serial.available() >= 20) { //clear the serial (ignored) wait relay to send them again
+    //   buffer = Serial.readString();
+    //   buffer = "";
+    // }
+    delay(isAction);
   }
 }
-
