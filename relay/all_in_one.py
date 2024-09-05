@@ -88,18 +88,18 @@ class MyDelegate(btle.DefaultDelegate):
         self.packetCounter = 0 # to be used with invalidpacketconter, reset the above value every 5 packets
 
     def handleNotification(self, cHandle, data):
-        global isHandshakeRequire
-        self.packetCounter += 1
+        #print("    Packet Receive : ", data)
         if (self.packetCounter == 5):
             self.packetCounter = 0
             self.invalidPacketCounter = 0
-        
-        #print("    Packet Receive : ", data)
+        self.packetCounter += 1
+
         self.rxPacketBuffer += data
 
         # check fragmentation + checksum
         if (len(self.rxPacketBuffer) == 20):
             self.payload, crcReceived = struct.unpack("<19sB", self.rxPacketBuffer)
+
             if (crc8.verify(self.payload, crcReceived)):
                 self.packetType, self.receivedDeviceID, self.seqReceived, self.payload = struct.unpack("<cBB16s", self.payload)
                 self.packetType = chr(self.packetType[0])
@@ -121,11 +121,6 @@ class MyDelegate(btle.DefaultDelegate):
             self.invalidPacketCounter += 1
             print(" Fragmented Packet ", len(self.rxPacketBuffer))
             self.isRxPacketReady = False
-            # too many fragmanetaion fault -> rehandshake
-        
-        if (self.invalidPacketCounter == 5):
-            isHandshakeRequire = True
-            #rehandshake is reauired
 
 class BLEConnection:
     def __init__(self, macAddr, serviceUUID, charUUID):
@@ -135,6 +130,7 @@ class BLEConnection:
         self.device = Peripheral()
         self.beetleSerial = None            # beetleSerial.write(bytes)
         self.isAllDataReceived = False
+        self.isHandshakeRequire = True
 
     def establishConnection(self):
         print(">> Searching and Connecting to the Beetle...")
@@ -153,7 +149,6 @@ class BLEConnection:
         packet = bytes(SYN, 'utf-8') + bytes([np.uint8(updatePacket['deviceID']),np.uint8(seq)]) + bytes([0] * 16)
         packet = packet + (bytes)([np.uint8(crc8.checksum(packet))])
         self.beetleSerial.write(packet)
-        #self.beetleSerial.write(bytes(SYN + str(beetleID) + 18*'0', encoding="utf-8"))
 
     def sendACK(self, seq):
         print("    Send ACK: ", seq)
@@ -163,7 +158,7 @@ class BLEConnection:
     
     def sendUPDATE(self):
         updatePacket['seq'] += 1
-        for i in range(5): # Keep sending until ACK received bytes(ACK + str(beetleID) + str(seq) + 17*'0', encoding="utf-8")
+        for i in range(5): # Keep sending until ACK
             packet = bytes(UPDATE, 'utf-8') + bytes([np.uint8(updatePacket['deviceID']),
                                             np.uint8(updatePacket['seq']),
                                             np.uint8(updatePacket['audio']),
@@ -174,26 +169,25 @@ class BLEConnection:
             print(">> Send UPDATE to the beetle: ", updatePacket['seq'])
 
             # wait for ACK + check ack seq
-            if (self.device.waitForNotifications(5) and self.device.delegate.isRxPacketReady):   # if no rehandshake need
+            if (self.device.waitForNotifications(5) and self.device.delegate.isRxPacketReady and not self.isHandshakeRequire):
                 if (self.device.delegate.packetType ==  ACK and (self.device.delegate.seqReceived == updatePacket['seq'])):
                     print(">> Done update player")
                     return
+                
                 elif (self.device.delegate.packetType ==  DATA): #if other data type will ignore
                     self.parseRxPacket() # update + send to server
+            
             else:
                 self.device.delegate.invalidPacketCounter += 1
-                if (self.invalidPacketCounter == 5):
-                    isHandshakeRequire = True
 
     def performHandShake(self):
-        global isHandshakeRequire
         print(">> Performing Handshake...")
         print(">> Send SYN to the beetle")
         self.sendSYN(0)
         if (self.device.waitForNotifications(5) and self.device.delegate.isRxPacketReady):
             if (self.device.delegate.packetType ==  ACK):
                 self.sendACK(0)
-                isHandshakeRequire = False
+                self.isHandshakeRequire = False
                 print(">> Handshake Done.")
                 return True
         print(">> Handshake Failed.")
@@ -212,6 +206,7 @@ class BLEConnection:
 
         if (packetType == SHOOT):
             self.sendACK(seqReceived)
+
             if (shootPacket['seq'] != seqReceived): #if nvr received this before, then update
                 shootPacket['seq']  = seqReceived
                 unpackFormat = "<BB" + str(14) + "s"
@@ -221,10 +216,12 @@ class BLEConnection:
         elif (packetType == DATA):
             self.isAllDataReceived = False
             self.updateData()
-            # break when received the last packet, or timeout, or received other types of packet that's not data(this imply that the beetle finished sending DATA alreay)
-            while (not self.isAllDataReceived and self.device.waitForNotifications(5) and self.device.delegate.isRxPacketReady):
+
+            # break when received the last packet, or timeout, or received other types of packet that's not data
+            while (not self.isAllDataReceived and self.device.waitForNotifications(5) and self.device.delegate.isRxPacketReady): 
                 if (self.device.delegate.packetType != DATA):
                     break
+                
                 self.updateData()
                 if (dataPacket['seq'] == 40):
                     self.isAllDataReceived = True
@@ -236,25 +233,25 @@ class BLEConnection:
                 print( "    Updated ", kickPacket)
         else:
             self.device.delegate.invalidPacketCounter += 1
-            if (self.invalidPacketCounter == 5):
-                isHandshakeRequire = True
             print(" Unpack: ", packetType, payload)
         
         return packetType
 
-isHandshakeRequire = True
 
 if __name__ == '__main__':
     # main program
     while True:
         ble1 = BLEConnection(MAC_ADDR, SERVICE_UUID, CHAR_UUID)
         ble1.establishConnection()
-        isHandshakeRequire = True
+        ble1.isHandshakeRequire = True
         try:
             while True:
+                ble1.isHandshakeRequire = (ble1.device.delegate.invalidPacketCounter == 5) or ble1.isHandshakeRequire
                 ble1.device.delegate.isRxPacketReady = False
-                if (isHandshakeRequire):
-                    isHandshakeRequire = not ble1.performHandShake()
+
+                if (ble1.isHandshakeRequire):
+                    ble1.isHandshakeRequire = not ble1.performHandShake()
+
                 else: # if (no re-handshake needed)    
                     if(ble1.device.waitForNotifications(1) and ble1.device.delegate.isRxPacketReady):
                         ble1.parseRxPacket()

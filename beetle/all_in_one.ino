@@ -161,7 +161,7 @@ void handshake(uint8_t seq) {
   }
 }
 
-char handleRxPacket() { // TODO: checksum
+char handleRxPacket() {
   char buffer[20];
   Serial.readBytes(buffer, 20);
 
