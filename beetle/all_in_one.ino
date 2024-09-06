@@ -1,7 +1,5 @@
 /*
   ltr:
-  - recheck the packet structure
-  - re-handshake when too many checksum wrong or ACK missing
   - checkpoint analysis
   - separate vest, hand, leg
   - (for consideration) : reset one of the beetle, (ble is not disconnected but all the data hold on beetle is reset) (hand)
@@ -36,7 +34,6 @@
 #define P2_VEST 4
 #define P2_HAND 5
 #define P2_LEG  6
-#define DEVICE_ID 2
 
 struct PlayerState {
   uint8_t updateSeq = 99;
@@ -47,33 +44,29 @@ struct PlayerState {
 
 struct AckPacket {
   char packetType = ACK;
-  uint8_t deviceID = DEVICE_ID;
   uint8_t seq = 0;
-  byte padding[16] = {0};
+  byte padding[17] = {0};
   uint8_t crc;
 };
 
 struct ShootPacket {
   char packetType = SHOOT;
-  uint8_t deviceID = DEVICE_ID;
   uint8_t seq = 0;
   uint8_t hit = 0;
   uint8_t bullet = 0;
-  byte padding[14] = {0};
+  byte padding[15] = {0};
   uint8_t crc;
 };
 
 struct KickPacket {
   char packetType = KICK;
-  uint8_t deviceID = DEVICE_ID;
   uint8_t seq = 0;
-  byte padding[16] = {0};
+  byte padding[17] = {0};
   uint8_t crc;
 };
 
 struct DataPacket{
   char packetType = DATA;
-  uint8_t deviceID = DEVICE_ID;
   uint8_t seq;
   int16_t accX;
   int16_t accY;
@@ -81,7 +74,7 @@ struct DataPacket{
   int16_t gyrX;
   int16_t gyrY;
   int16_t gyrZ;
-  byte padding[4] = {0};
+  byte padding[5] = {0};
   uint8_t crc;
 };
 
@@ -173,7 +166,7 @@ char handleRxPacket() {
   }
   
   char packetType = buffer[0];
-  uint8_t seqReceived = buffer[2];
+  uint8_t seqReceived = buffer[1];
     
   switch (packetType) {
     // update from server have higher priority than sending data to relay 
@@ -182,10 +175,10 @@ char handleRxPacket() {
       sendACK(seqReceived);
       if (playerState.updateSeq != seqReceived) {
         // only update if not the seq that already received
-        playerState.updateSeq = buffer[2];
-        playerState.audio = buffer[3];
-        playerState.reload = buffer[4];
-        playerState.bullet = buffer[5];
+        playerState.updateSeq = buffer[1];
+        playerState.audio = buffer[2];
+        playerState.reload = buffer[3];
+        playerState.bullet = buffer[4];
       }
       // might wanna reset the audio and reload after the audio is played
       break;

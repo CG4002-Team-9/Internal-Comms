@@ -1,9 +1,8 @@
 '''
   ltr:
-  - recheck the packet structure
+  - (for consideration) : reset one of the beetle, (ble is not disconnected but all the data hold on beetle is reset) (hand)
   - checkpoint analysis
   - separate vest, hand, leg
-  - (for consideration) : reset one of the beetle, (ble is not disconnected but all the data hold on beetle is reset) (hand)
   - resend bullet data when reestablish connection (hand)
   - pass data to ultra96
 
@@ -41,10 +40,7 @@ DATA = 'D'
 KICK = 'K'
 UPDATE = 'U'
 
-beetleID = 2 #dont really need this?
-
 updatePacket = {
-    'deviceID': beetleID,
     'seq': 0,
     'audio': 0,
     'reload': 0,
@@ -52,14 +48,12 @@ updatePacket = {
 }
 
 shootPacket = {
-    'deviceID': beetleID,
     'seq': 0,
     'hit': 0,
     'bullet': 6
 }
 
 dataPacket = {
-    'deviceID': beetleID,
     'seq': 0,
     'accX': 0,
     'accY': 0,
@@ -70,7 +64,6 @@ dataPacket = {
 }
 
 kickPacket = {
-    'deviceID': beetleID,
     'seq': 0
     #'kick': 0
 }
@@ -82,7 +75,6 @@ class MyDelegate(btle.DefaultDelegate):
         self.payload = b''
         self.isRxPacketReady = False
         self.packetType = ''
-        self.receivedDeviceID = 0
         self.seqReceived = 0
         self.invalidPacketCounter = 0
         self.packetCounter = 0 # to be used with invalidpacketconter, reset the above value every 5 packets
@@ -101,7 +93,7 @@ class MyDelegate(btle.DefaultDelegate):
             self.payload, crcReceived = struct.unpack("<19sB", self.rxPacketBuffer)
 
             if (crc8.verify(self.payload, crcReceived)):
-                self.packetType, self.receivedDeviceID, self.seqReceived, self.payload = struct.unpack("<cBB16s", self.payload)
+                self.packetType, self.seqReceived, self.payload = struct.unpack("<cB17s", self.payload)
                 self.packetType = chr(self.packetType[0])
                 self.isRxPacketReady = True
                 print(" Received: ", self.packetType, " Seq: ", self.seqReceived)
@@ -146,24 +138,23 @@ class BLEConnection:
         return True
 
     def sendSYN(self, seq):
-        packet = bytes(SYN, 'utf-8') + bytes([np.uint8(updatePacket['deviceID']),np.uint8(seq)]) + bytes([0] * 16)
+        packet = bytes(SYN, 'utf-8') + bytes([np.uint8(seq)]) + bytes([0] * 17)
         packet = packet + (bytes)([np.uint8(crc8.checksum(packet))])
         self.beetleSerial.write(packet)
 
     def sendACK(self, seq):
         print("    Send ACK: ", seq)
-        packet = bytes(ACK, 'utf-8') + bytes([np.uint8(updatePacket['deviceID']), np.uint8(seq)]) + bytes([0] * 16)
+        packet = bytes(ACK, 'utf-8') + bytes([np.uint8(seq)]) + bytes([0] * 17)
         packet = packet + (bytes)([np.uint8(crc8.checksum(packet))])
         self.beetleSerial.write(packet)
     
     def sendUPDATE(self):
         updatePacket['seq'] += 1
         for i in range(5): # Keep sending until ACK
-            packet = bytes(UPDATE, 'utf-8') + bytes([np.uint8(updatePacket['deviceID']),
-                                            np.uint8(updatePacket['seq']),
+            packet = bytes(UPDATE, 'utf-8') + bytes([np.uint8(updatePacket['seq']),
                                             np.uint8(updatePacket['audio']),
                                             np.uint8(updatePacket['reload']),
-                                            np.uint8(updatePacket['bullet'])]) + bytes([0] * 13)
+                                            np.uint8(updatePacket['bullet'])]) + bytes([0] * 14)
             packet = packet + (bytes)([np.uint8(crc8.checksum(packet))])
             self.beetleSerial.write(packet)
             print(">> Send UPDATE to the beetle: ", updatePacket['seq'])
@@ -195,8 +186,8 @@ class BLEConnection:
 
     def updateData(self):
         dataPacket['seq']  = self.device.delegate.seqReceived
-        unpackFormat = "<hhhhhh" + str(4) + "s"
-        dataPacket['accX'], dataPacket['accY'], dataPacket['accZ'], dataPacket['gyrX'], dataPacket['gyrY'], dataPacket['gyrZ'], padding = struct.unpack(unpackFormat, self.device.delegate.payload)       # need beetleID?
+        unpackFormat = "<hhhhhh" + str(5) + "s"
+        dataPacket['accX'], dataPacket['accY'], dataPacket['accZ'], dataPacket['gyrX'], dataPacket['gyrY'], dataPacket['gyrZ'], padding = struct.unpack(unpackFormat, self.device.delegate.payload)
         print( "    Updated ", dataPacket)
 
     def parseRxPacket(self):
@@ -209,7 +200,7 @@ class BLEConnection:
 
             if (shootPacket['seq'] != seqReceived): #if nvr received this before, then update
                 shootPacket['seq']  = seqReceived
-                unpackFormat = "<BB" + str(14) + "s"
+                unpackFormat = "<BB" + str(15) + "s"
                 shootPacket['hit'], shootPacket['bullet'], padding = struct.unpack(unpackFormat, payload)
                 print( "    Updated ", shootPacket)
 
