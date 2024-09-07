@@ -1,9 +1,7 @@
 /*
   ltr:
   - W6 checkpoint
-  - separate vest, hand, leg
   - pass data to ultra96
-
 
   curr:
   - handshake + re-handshake when disconnect
@@ -39,7 +37,7 @@ struct PlayerState {
   uint8_t updateSeq = 99;
   uint8_t audio = 0;
   uint8_t reload = 0;
-  // uint8_t bullet = 6; -> Store in EEPROM instead
+  uint8_t bullet = 6; //-> Store in EEPROM instead
 };
 
 struct AckPacket {
@@ -96,8 +94,8 @@ int bulletAddr = 0;
 void getShootPacket() {
   shootPacket.seq = ++globalSeq;
   shootPacket.hit = random(0, 2);
-  //shootPacket.bullet = playerState.bullet;
-  shootPacket.bullet = EEPROM.read(bulletAddr);
+  shootPacket.bullet = playerState.bullet;
+  //shootPacket.bullet = EEPROM.read(bulletAddr);
   crc.reset();
   crc.add((byte *) &shootPacket, sizeof(shootPacket) - 1);
   shootPacket.crc = crc.calc();
@@ -180,8 +178,8 @@ char handleRxPacket() {
         playerState.updateSeq = buffer[1];
         playerState.audio = buffer[2];
         playerState.reload = buffer[3];
-        //playerState.bullet = buffer[4];
-        EEPROM.update(bulletAddr, buffer[4]);
+        playerState.bullet = buffer[4];
+        //EEPROM.update(bulletAddr, buffer[4]);
       }
       // might wanna reset the audio and reload after the audio is played
       break;
