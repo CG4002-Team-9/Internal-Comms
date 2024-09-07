@@ -1,9 +1,7 @@
 /*
   ltr:
-  - checkpoint analysis
+  - W6 checkpoint
   - separate vest, hand, leg
-  - (for consideration) : reset one of the beetle, (ble is not disconnected but all the data hold on beetle is reset) (hand)
-  - resend bullet data when reestablish connection (hand)
   - pass data to ultra96
 
 
@@ -15,6 +13,7 @@
   - can handle fragmentation
   - support kick, shoot, update, data, syn, ack
   - sending random data
+  - EEPROM to save bullet data when beetle is reset during the game
 */
 
 #include <EEPROM.h>

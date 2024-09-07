@@ -1,9 +1,7 @@
 '''
   ltr:
-  - (for consideration) : reset one of the beetle, (ble is not disconnected but all the data hold on beetle is reset) (hand)
-  - checkpoint analysis
+  - W6 checkpoint
   - separate vest, hand, leg
-  - resend bullet data when reestablish connection (hand)
   - pass data to ultra96
 
 
