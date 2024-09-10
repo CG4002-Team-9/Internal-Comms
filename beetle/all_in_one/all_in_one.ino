@@ -1,6 +1,5 @@
 /*
   ltr:
-  - W6 checkpoint
   - pass data to ultra96
 
   curr:
