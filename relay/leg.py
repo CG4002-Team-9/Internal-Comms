@@ -36,8 +36,9 @@ class MyDelegate(btle.DefaultDelegate):
         if (self.packetCounter == 5):
             self.packetCounter = 0
             self.invalidPacketCounter = 0
-        
+
         self.packetCounter += 1
+        self.isRxPacketReady = False
         self.rxPacketBuffer += data
 
         # check fragmentation + checksum
@@ -58,12 +59,12 @@ class MyDelegate(btle.DefaultDelegate):
             return
 
         elif (len(self.rxPacketBuffer) > 20):
-            self.rxPacketBuffer = b''   
+            self.rxPacketBuffer = b''  
+            print(" Fragmented Packet/ Length > 20") 
 
         else:
             self.invalidPacketCounter += 1
             print(" Fragmented Packet ", len(self.rxPacketBuffer))
-            self.isRxPacketReady = False
 
 class BLEConnection:
     def __init__(self, macAddr, serviceUUID, charUUID):
