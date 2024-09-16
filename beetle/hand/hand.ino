@@ -53,6 +53,8 @@ bool isHandshaked = false;
 bool isWaitingForAck = false;
 int waitingAckSeq;
 int bulletAddr = 0;
+unsigned long previousDataMillis = 0;
+unsigned long previousShootMillis = 0; 
 
 void getShootPacket() {
   shootPacket.seq = ++globalSeq;
@@ -86,10 +88,10 @@ void sendACK(uint8_t seq) {
 }
 
 void sendDATA() {
-  for (uint8_t seq = 1; seq <= 40; seq++) {
+  for (uint8_t seq = 1; seq <= 100; seq++) {
     getDataPacket(seq);
     Serial.write((byte *) &dataPacket, sizeof(dataPacket));
-    delay(50);
+    delay(20);
   }
 }
 
@@ -164,30 +166,36 @@ void setup() {
   Serial.begin(115200);
 }
 
+int shootRand = random(2000, 8000);
+int actionRand = random(10000, 15000);
+
 void loop() {
+  unsigned long currentMillis = millis();
+
   if (Serial.available() >= 20) {
     handleRxPacket();
   }
 
-  int isShoot = random(0, 20000);
-  int isAction = random(0, 50000);
-
-  if (isHandshaked && (isShoot == 4)) {
+  if ((currentMillis - previousShootMillis >= shootRand) && isHandshaked) {
     getShootPacket();
     do {
       sendSHOOT();
       isWaitingForAck = true;
       waitAck(500, shootPacket.seq);
     } while (isWaitingForAck);
-    delay(random(0,2000));
+
+    shootRand = random(2000, 8000);
+    previousShootMillis = currentMillis;
   }
 
-  else if (isHandshaked && (isAction == 20)) {
+  else if ((currentMillis - previousDataMillis >= actionRand) && isHandshaked) {
     sendDATA();
     if (Serial.available() >= 20) {
       String buffer = Serial.readString();
       buffer = "";
     }
-    delay(100);
+    
+    actionRand = random(10000, 15000);
+    previousDataMillis = currentMillis;
   }
 }

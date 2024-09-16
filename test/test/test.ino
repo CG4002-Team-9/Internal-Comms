@@ -10,6 +10,7 @@
 #define ACK 'A'
 #define UPDATE 'U'
 #define DATA 'D'
+#define SHOOT 'G'
 #define INVALID_PACKET 'X'
 
 struct PlayerState {
@@ -21,6 +22,15 @@ struct AckPacket {
   char packetType = ACK;
   uint8_t seq = 0;
   byte padding[17] = {0};
+  uint8_t crc;
+};
+
+struct ShootPacket {
+  char packetType = SHOOT;
+  uint8_t seq = 0;
+  uint8_t hit = 0;
+  uint8_t bullet = 0;
+  byte padding[15] = {0};
   uint8_t crc;
 };
 
@@ -39,6 +49,7 @@ struct DataPacket{
 
 PlayerState playerState;
 AckPacket ackPacket;
+ShootPacket shootPacket;
 DataPacket dataPacket;
 CRC8 crc;
 uint8_t globalSeq = 0;
@@ -47,16 +58,24 @@ bool isHandshaked = false;
 bool isWaitingForAck = false;
 int waitingAckSeq;
 int bulletAddr = 0;
+unsigned long previousDataMillis = 0;
+unsigned long previousShootMillis = 0; 
+
+void getShootPacket() {
+  shootPacket.seq = ++globalSeq;
+  shootPacket.hit = random(0, 2);
+  shootPacket.bullet = random(0, 6);
+  //shootPacket.bullet = EEPROM.read(bulletAddr);
+}
 
 void getDataPacket(uint8_t seq) {
   dataPacket.seq = seq;
-  dataPacket.seq = seq;
-  dataPacket.accX = 1;
-  dataPacket.accY = 2;
-  dataPacket.accZ = 3;
-  dataPacket.gyrX = 4;
-  dataPacket.gyrY = 5;
-  dataPacket.gyrZ = 6;
+  dataPacket.accX = random(-10000, 10000);
+  dataPacket.accY = random(-10000, 10000);
+  dataPacket.accZ = random(-10000, 10000);
+  dataPacket.gyrX = random(-10000, 10000);
+  dataPacket.gyrY = random(-10000, 10000);
+  dataPacket.gyrZ = random(-10000, 10000);
   crc.reset();
   crc.add((byte *) &dataPacket, sizeof(dataPacket) - 1);
   dataPacket.crc = crc.calc();
@@ -71,11 +90,23 @@ void sendACK(uint8_t seq) {
 }
 
 void sendDATA() {
-  for (uint8_t seq = 1; seq <= 40; seq++) {
+  for (uint8_t seq = 1; seq <= 100; seq++) {
     getDataPacket(seq);
     Serial.write((byte *) &dataPacket, sizeof(dataPacket));
-    delay(50);
+    delay(20);
   }
+}
+
+void sendSHOOT() {
+  if (random(10) == 4) {
+    shootPacket.crc = 0;
+  }
+  else {
+    crc.reset();
+    crc.add((byte *) &shootPacket, sizeof(shootPacket) - 1);
+    shootPacket.crc = crc.calc();
+  }
+  Serial.write((byte *) &shootPacket, sizeof(shootPacket));
 }
 
 void handshake(uint8_t seq) {
@@ -144,17 +175,36 @@ void setup() {
   Serial.begin(115200);
 }
 
+int shootRand = random(2000, 8000);
+int actionRand = random(10000, 15000);
+
 void loop() {
+  unsigned long currentMillis = millis();
+
   if (Serial.available() >= 20) {
     handleRxPacket();
   }
 
-  if (isHandshaked) {
+  if ((currentMillis - previousShootMillis >= shootRand) && isHandshaked) {
+    getShootPacket();
+    do {
+      sendSHOOT();
+      isWaitingForAck = true;
+      waitAck(500, shootPacket.seq);
+    } while (isWaitingForAck);
+
+    shootRand = random(2000, 8000);
+    previousShootMillis = currentMillis;
+  }
+
+  else if ((currentMillis - previousDataMillis >= actionRand) && isHandshaked) {
     sendDATA();
     if (Serial.available() >= 20) {
       String buffer = Serial.readString();
       buffer = "";
     }
-    delay(random(1000,5000));
+    
+    actionRand = random(7000, 15000);
+    previousDataMillis = currentMillis;
   }
 }

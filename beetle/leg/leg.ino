@@ -56,6 +56,19 @@ void handshake(uint8_t seq) {
   }
 }
 
+void waitAck(int ms, uint8_t seq) {
+  waitingAckSeq = seq;
+  for (int i = 0; i < ms; i++) {
+    if (Serial.available() >= 20) {
+      handleRxPacket();
+      if (!isWaitingForAck) {
+        return;
+      }
+    }
+    delay(1);
+  }
+}
+
 char handleRxPacket() {
   char buffer[20];
   Serial.readBytes(buffer, 20);
@@ -83,39 +96,32 @@ char handleRxPacket() {
     default:
       break;
   }
-
   return packetType;
-}
-
-void waitAck(int ms, uint8_t seq) {
-  waitingAckSeq = seq;
-  for (int i = 0; i < ms; i++) {
-    if (Serial.available() >= 20) {
-      handleRxPacket();
-      if (!isWaitingForAck) {
-        return;
-      }
-    }
-    delay(1);
-  }
 }
 
 void setup() {
   Serial.begin(115200);
 }
 
+int kickRand = random(3000, 8000);
+unsigned long previousKickMillis = 0;
+
 void loop() {
+  unsigned long currentMillis = millis();
+
   if (Serial.available() >= 20) {
     handleRxPacket();
   }
   
-  int isKick = random(0,100000); 
-  if (isHandshaked && (isKick == 4)) {
+  if ((currentMillis - previousKickMillis >= kickRand) && isHandshaked) {
     getKickPacket();
     do {
       sendKICK();
       isWaitingForAck = true;
       waitAck(500, kickPacket.seq);
     } while (isWaitingForAck);
+
+    kickRand = random(3000, 8000);
+    previousKickMillis = currentMillis;
   }
 }

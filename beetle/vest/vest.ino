@@ -22,7 +22,7 @@ PlayerState playerState;
 AckPacket ackPacket;
 CRC8 crc;
 uint8_t globalSeq = 0;
-bool isHandshaking = false; // track re-handshake case during handshake
+bool isHandshaking = false;
 bool isHandshaked = false;
 bool isWaitingForAck = false;
 int waitingAckSeq;
@@ -44,7 +44,7 @@ void handshake(uint8_t seq) {
   }
 }
 
-void waitAck(int ms, uint8_t seq) {  // wait for ACK, timeout
+void waitAck(int ms, uint8_t seq) {
   waitingAckSeq = seq;
   for (int i = 0; i < ms; i++) {
     if (Serial.available() >= 20) {
@@ -75,7 +75,6 @@ char handleRxPacket() {
     case UPDATE:
       sendACK(seqReceived);
       if (playerState.updateSeq != seqReceived) {
-        // only update if not the seq that already received
         playerState.updateSeq = buffer[1];
         playerState.audio = buffer[2];
         playerState.reload = buffer[3];

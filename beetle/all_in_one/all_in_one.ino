@@ -1,18 +1,3 @@
-/*
-  ltr:
-  - pass data to ultra96
-
-  curr:
-  - handshake + re-handshake when disconnect
-  - ack timeout, resend
-  - CRC
-  - seq number : ignore if recevied the same seq + resend if ACk is not match what had sent, send ack with the recevied seq, update seq every packet send,
-  - can handle fragmentation
-  - support kick, shoot, update, data, syn, ack
-  - sending random data
-  - EEPROM to save bullet data when beetle is reset during the game
-*/
-
 #include <EEPROM.h>
 #include "CRC8.h"
 
@@ -24,13 +9,6 @@
 #define SHOOT 'G'
 #define KICK 'K'
 #define INVALID_PACKET 'X'
-
-#define P1_VEST 1
-#define P1_HAND 2
-#define P1_LEG  3
-#define P2_VEST 4
-#define P2_HAND 5
-#define P2_LEG  6
 
 struct PlayerState {
   uint8_t updateSeq = 99;
@@ -75,7 +53,6 @@ struct DataPacket{
   uint8_t crc;
 };
 
-String buffer;
 PlayerState playerState;
 AckPacket ackPacket;
 ShootPacket shootPacket;
@@ -83,12 +60,14 @@ DataPacket dataPacket;
 KickPacket kickPacket;
 CRC8 crc;
 uint8_t globalSeq = 0;
-
 bool isHandshaking = false; // track re-handshake case during handshake
 bool isHandshaked = false;
 bool isWaitingForAck = false;
 int waitingAckSeq;
 int bulletAddr = 0;
+unsigned long previousDataMillis = 0;
+unsigned long previousShootMillis = 0; 
+unsigned long previousKickMillis = 0;
 
 void getShootPacket() {
   shootPacket.seq = ++globalSeq;
@@ -129,10 +108,10 @@ void sendACK(uint8_t seq) {
 }
 
 void sendDATA() {
-  for (uint8_t seq = 1; seq <= 40; seq++) {
+  for (uint8_t seq = 1; seq <= 100; seq++) {
     getDataPacket(seq);
     Serial.write((byte *) &dataPacket, sizeof(dataPacket));
-    delay(50);
+    delay(20);
   }
 }
 
@@ -150,6 +129,19 @@ void handshake(uint8_t seq) {
   waitAck(500, seq);
   if (!isWaitingForAck) { 
     isHandshaked = true;
+  }
+}
+
+void waitAck(int ms, uint8_t seq) {  // wait for ACK, timeout
+  waitingAckSeq = seq;
+  for (int i = 0; i < ms; i++) {
+    if (Serial.available() >= 20) {
+      handleRxPacket();
+      if (!isWaitingForAck) {
+        return;
+      }
+    }
+    delay(1);
   }
 }
 
@@ -172,8 +164,9 @@ char handleRxPacket() {
     // DATA > UPDATE > SHOOT
     case UPDATE:
       sendACK(seqReceived);
+
+      // only update if it's the new seq number
       if (playerState.updateSeq != seqReceived) {
-        // only update if not the seq that already received
         playerState.updateSeq = buffer[1];
         playerState.audio = buffer[2];
         playerState.reload = buffer[3];
@@ -202,61 +195,55 @@ char handleRxPacket() {
   return packetType;
 }
 
-void waitAck(int ms, uint8_t seq) {  // wait for ACK, timeout
-  waitingAckSeq = seq;
-  for (int i = 0; i < ms; i++) {
-    if (Serial.available() >= 20) {
-      handleRxPacket();
-      if (!isWaitingForAck) {
-        return;
-      }
-    }
-    delay(1);
-  }
-}
-
 void setup() {
   Serial.begin(115200);
 }
 
+int shootRand = random(2000, 8000);
+int actionRand = random(10000, 15000);
+int kickRand = random(3000, 8000);
+
 void loop() {
+  unsigned long currentMillis = millis();
+
   if (Serial.available() >= 20) {
     handleRxPacket();
   }
-    
-  int isKick = random(0,5000); 
-  int isShoot = random(0, 2000);
-  int isAction = random(0, 5000);
 
-  
-  if (isHandshaked && (isShoot == 4)) { //trigger by the button && isHandshaked (if bullet > 0, bullet - 1)
+  if ((currentMillis - previousShootMillis >= shootRand) && isHandshaked) {
     getShootPacket();
     do {
       sendSHOOT();
       isWaitingForAck = true;
       waitAck(500, shootPacket.seq);
     } while (isWaitingForAck);
-    delay(isAction);
+
+    shootRand = random(2000, 8000);
+    previousShootMillis = currentMillis;
   }
 
-  else if (isHandshaked && (isKick == 4)) { //trigger by flex sensor && isHandshaked  
+  if ((currentMillis - previousShootMillis >= kickRand) && isHandshaked) {
     getKickPacket();
     do {
       sendKICK();
       isWaitingForAck = true;
       waitAck(500, kickPacket.seq);
     } while (isWaitingForAck);
-    delay(isAction);
+
+    kickRand = random(3000, 8000);
+    previousKickMillis = currentMillis;
   }
 
-  else if (isHandshaked && (isAction == 20)) { //trigger by IMU && isHandshaked
+  else if ((currentMillis - previousDataMillis >= actionRand) && isHandshaked) {
     sendDATA();
     if (Serial.available() >= 20) {
       //clear the serial (ignored) wait relay to send them again, there could be the case where multiple 
       //of the same packets waiting in the buffer -> keep sending multiple ack to response
-      buffer = Serial.readString();
+      String buffer = Serial.readString();
       buffer = "";
     }
-    delay(100); // for relay to send any update if it's discarded during sending data
+
+    actionRand = random(7000, 15000);
+    previousDataMillis = currentMillis;
   }
 }
