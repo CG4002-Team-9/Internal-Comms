@@ -63,6 +63,9 @@ unsigned long previousShootMillis = 0;
 
 void getShootPacket() {
   shootPacket.seq = ++globalSeq;
+  if (globalSeq == 100) {
+    globalSeq = 0;
+  }
   shootPacket.hit = random(0, 2);
   shootPacket.bullet = random(0, 6);
   //shootPacket.bullet = EEPROM.read(bulletAddr);
@@ -185,26 +188,25 @@ void loop() {
     handleRxPacket();
   }
 
-  if ((currentMillis - previousShootMillis >= shootRand) && isHandshaked) {
+  //if ((currentMillis - previousShootMillis >= shootRand) && isHandshaked) {
+  if (isHandshaked) {
     getShootPacket();
     do {
       sendSHOOT();
       isWaitingForAck = true;
       waitAck(500, shootPacket.seq);
     } while (isWaitingForAck);
-
-    shootRand = random(2000, 8000);
-    previousShootMillis = currentMillis;
   }
+  //}
 
-  else if ((currentMillis - previousDataMillis >= actionRand) && isHandshaked) {
-    sendDATA();
-    if (Serial.available() >= 20) {
-      String buffer = Serial.readString();
-      buffer = "";
-    }
+ // else if ((currentMillis - previousDataMillis >= actionRand) && isHandshaked) {
+    // sendDATA();
+    // if (Serial.available() >= 20) {
+    //   String buffer = Serial.readString();
+    //   buffer = "";
+    // }
     
-    actionRand = random(7000, 15000);
-    previousDataMillis = currentMillis;
-  }
+    // actionRand = random(7000, 15000);
+    // previousDataMillis = currentMillis;
+  //}
 }
