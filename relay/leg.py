@@ -137,12 +137,15 @@ class BLEConnection:
 
 if __name__ == '__main__':
     while True:
-        ble1 = BLEConnection(MAC_ADDR, SERVICE_UUID, CHAR_UUID)
-        ble1.establishConnection()
-        ble1.isHandshakeRequire = True
-        try:
+        try: 
+            ble1 = BLEConnection(MAC_ADDR, SERVICE_UUID, CHAR_UUID)
+            ble1.establishConnection()
+            ble1.isHandshakeRequire = True
+            #try:
             while True:
                 ble1.main()
 
+           # except BTLEDisconnectError:
+                #pass
         except BTLEDisconnectError:
             pass
