@@ -114,7 +114,10 @@ class BLEConnection:
     
     def sendUPDATE(self):
         updatePacket['seq'] += 1
-
+        
+        if (updatePacket['seq']) > 100:
+            updatePacket['seq'] = 0
+            
         # try sending 5 times and wait for ack. otherwise, rehandshake
         for i in range(5):
             packet = bytes(UPDATE, 'utf-8') + bytes([np.uint8(updatePacket['seq']),
@@ -171,7 +174,7 @@ class BLEConnection:
 
         elif (packetType == DATA):
             self.updateData()
-            if (dataPacket['seq'] == 100): # just in case the last packet is fragmented (wont be in the while loop below)
+            if (dataPacket['seq'] == 40): # just in case the last packet is fragmented (wont be in the while loop below)
                 self.isAllDataReceived = True
                 print("_______________________________________________________________ ")
             else :
@@ -184,7 +187,7 @@ class BLEConnection:
                 
                 self.updateData()
 
-                if (dataPacket['seq'] == 100):
+                if (dataPacket['seq'] == 40):
                     self.isAllDataReceived = True
                     print("_______________________________________________________________ ")
 
@@ -205,7 +208,7 @@ class BLEConnection:
                 ble1.parseRxPacket()
 
             # send update if needed
-            isUpdateNeed = not bool(random.randint(0,10))
+            isUpdateNeed = not bool(random.randint(0,10)) and shootPacket['bullet'] == 0
             if (isUpdateNeed and (self.device.delegate.packetType != DATA or self.isAllDataReceived)):
                 updatePacket['audio'] = random.randint(1,4)
                 self.sendUPDATE()

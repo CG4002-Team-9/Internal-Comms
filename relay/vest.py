@@ -96,6 +96,9 @@ class BLEConnection:
     
     def sendUPDATE(self):
         updatePacket['seq'] += 1
+        if (updatePacket['seq']) > 100:
+            updatePacket['seq'] = 0
+            
         for i in range(5):
             packet = bytes(UPDATE, 'utf-8') + bytes([np.uint8(updatePacket['seq']),
                                             np.uint8(updatePacket['audio']),
