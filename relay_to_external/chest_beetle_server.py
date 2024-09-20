@@ -36,16 +36,18 @@ class ChestBeetleServer:
         
         async for message in mqtt_client.messages:
             payload = message.payload.decode('utf-8')
-            # print(payload)
-            data = json.loads(payload)
-            # Extract HP and shield info for the specific player
-            if 'game_state' in data:
-                player_key = f'p{PLAYER_ID}'
-                if player_key in data['game_state']:
-                    hp = data['game_state'][player_key].get('hp', None)
-                    shield_hp = data['game_state'][player_key].get('shield_hp', None)
-                    if hp is not None and shield_hp is not None:
-                        update_hp_and_shield_on_wearable(hp, shield_hp)
+            try:
+                data = json.loads(payload)
+                # Extract HP and shield info for the specific player
+                if 'game_state' in data:
+                    player_key = f'p{PLAYER_ID}'
+                    if player_key in data['game_state']:
+                        hp = data['game_state'][player_key].get('hp', None)
+                        shield_hp = data['game_state'][player_key].get('shield_hp', None)
+                        if hp is not None and shield_hp is not None:
+                            update_hp_and_shield_on_wearable(hp, shield_hp)
+            except json.JSONDecodeError:
+                print(f'[ERROR] Invalid JSON payload: {payload}')
 
     async def run(self):
         print('[DEBUG] Connecting to MQTT broker...')
@@ -54,6 +56,7 @@ class ChestBeetleServer:
             port=MQTT_PORT,
             username=BROKERUSER,
             password=PASSWORD,
+            identifier=f'chest_beetle_server{PLAYER_ID}',
         ) as mqtt_client:
             print(f'[DEBUG] Connected to MQTT broker at {BROKER}:{MQTT_PORT}')
             await self.process_mqtt_messages(mqtt_client)

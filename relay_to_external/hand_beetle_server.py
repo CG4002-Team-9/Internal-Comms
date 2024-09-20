@@ -109,14 +109,17 @@ class HandBeetleServer:
         
         async for message in mqtt_client.messages:
             payload = message.payload.decode('utf-8')
-            data = json.loads(payload)
-            if 'game_state' in data:
-                player_key = f'p{PLAYER_ID}'
-                if player_key in data['game_state']:
-                    bullets = data['game_state'][player_key].get('bullets', None)
-                    if bullets is not None:
-                        update_bullets_on_wearable(bullets)
-
+            try:
+                data = json.loads(payload)
+                if 'game_state' in data:
+                    player_key = f'p{PLAYER_ID}'
+                    if player_key in data['game_state']:
+                        bullets = data['game_state'][player_key].get('bullets', None)
+                        if bullets is not None:
+                            update_bullets_on_wearable(bullets)
+            except json.JSONDecodeError:
+                print(f'[ERROR] Invalid JSON payload: {payload}')
+                
     async def run(self):
         await self.setup_rabbitmq()
         async with aiomqtt.Client(
@@ -124,6 +127,7 @@ class HandBeetleServer:
             port=MQTT_PORT,
             username=BROKERUSER,
             password=PASSWORD,
+            indetifier=f'hand_beetle_server{PLAYER_ID}',
         ) as mqtt_client:
             await asyncio.gather(
                 self.send_imu_data(),
