@@ -12,6 +12,8 @@ MAC_ADDR = "F4:B8:5E:42:67:1B"  # hand, 2
 SERVICE_UUID = "0000dfb0-0000-1000-8000-00805f9b34fb"
 CHAR_UUID = "0000dfb1-0000-1000-8000-00805f9b34fb"
 
+imuDatasets = {}
+
 # Packet Types
 SYN = 'S'
 ACK = 'A'
@@ -87,6 +89,7 @@ class BLEConnection:
         self.beetleSerial = None
         self.isAllDataReceived = False
         self.isHandshakeRequire = True
+        self.imuSeq = 0
 
     def establishConnection(self):
         print(">> Searching and Connecting to the Beetle...")
@@ -131,7 +134,7 @@ class BLEConnection:
             # wait for ack and check the ack seq
             if (self.device.waitForNotifications(0.1) and self.device.delegate.isRxPacketReady and not self.isHandshakeRequire):
                 if (self.device.delegate.packetType ==  ACK and (self.device.delegate.seqReceived == updatePacket['seq'])):
-                    shootPacket['bullet'] = 0
+                    shootPacket['bullet'] = updatePacket['bullet']
                     print(">> Done update player")
                     print("_______________________________________________________________ ")
                     return
@@ -154,12 +157,21 @@ class BLEConnection:
         return False
 
     def updateData(self):
+        global imuDatasets
+
         dataPacket['seq']  = self.device.delegate.seqReceived
         unpackFormat = "<hhhhhh" + str(5) + "s"
         dataPacket['accX'], dataPacket['accY'], dataPacket['accZ'], dataPacket['gyrX'], dataPacket['gyrY'], dataPacket['gyrZ'], padding = struct.unpack(unpackFormat, self.device.delegate.payload)
+        imuDatasets[self.imuSeq] = dataPacket.copy()
+        while (dataPacket['seq'] >= self.imuSeq):
+            imuDatasets[self.imuSeq] = dataPacket.copy()
+            self.imuSeq += 1
+
         print(f"    Updated {dataPacket}")
 
     def parseRxPacket(self):
+        global imuDatasets
+
         packetType = self.device.delegate.packetType
         seqReceived = self.device.delegate.seqReceived
         payload = self.device.delegate.payload
@@ -175,26 +187,32 @@ class BLEConnection:
 
         elif (packetType == DATA):
             self.updateData()
-            if (dataPacket['seq'] == 40): # just in case the last packet is fragmented (wont be in the while loop below)
-                self.isAllDataReceived = True
-                print("_______________________________________________________________ ")
-            else :
-                self.isAllDataReceived = False
+            self.isAllDataReceived = False
 
             # break when received the last packet, or timeout, or received other types of packet that's not DATA
-            while (not self.isAllDataReceived and self.device.waitForNotifications(0.1) and self.device.delegate.isRxPacketReady): 
+            while (not self.isAllDataReceived and self.device.waitForNotifications(0.2)):
+                if (not self.device.delegate.isRxPacketReady): # in case of fragmentation
+                    continue
                 if (self.device.delegate.packetType != DATA):
                     break
                 
                 self.updateData()
 
-                if (dataPacket['seq'] == 40):
+                if (dataPacket['seq'] == 30):
                     self.isAllDataReceived = True
-                    print("_______________________________________________________________ ")
+            
+            # wait until timeout
+            self.isAllDataReceived = True
+            print(imuDatasets)
+            print("_______________________________________________________________ ")
+            self.imuSeq = 0
+            imuDatasets.clear()
 
         else:
             self.device.delegate.invalidPacketCounter += 1
             print(f" Unpack: {packetType} {payload}")
+        
+        self.device.delegate.packetType = ''
 
         return packetType
 
@@ -221,11 +239,8 @@ if __name__ == '__main__':
             ble1 = BLEConnection(MAC_ADDR, SERVICE_UUID, CHAR_UUID)
             ble1.establishConnection()
             ble1.isHandshakeRequire = True
-            #try:
             while True:
                 ble1.main()
 
-           # except BTLEDisconnectError:
-                #pass
         except BTLEDisconnectError:
             pass
