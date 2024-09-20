@@ -38,7 +38,7 @@ void sendACK(uint8_t seq) {
 void handshake(uint8_t seq) {
   sendACK(seq);
   isHandshaked = false;
-  waitAck(500, seq);
+  waitAck(200, seq);
   if (!isWaitingForAck) { 
     isHandshaked = true;
   }

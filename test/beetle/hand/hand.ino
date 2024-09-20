@@ -108,7 +108,7 @@ void sendSHOOT() {
 void handshake(uint8_t seq) {
   sendACK(seq);
   isHandshaked = false;
-  waitAck(500, seq);
+  waitAck(200, seq);
   if (!isWaitingForAck) { 
     isHandshaked = true;
   }
@@ -183,7 +183,7 @@ void loop() {
       do {
         sendSHOOT();
         isWaitingForAck = true;
-        waitAck(500, shootPacket.seq);
+        waitAck(200, shootPacket.seq);
       } while (isWaitingForAck);
     }
     else {

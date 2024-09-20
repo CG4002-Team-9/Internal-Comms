@@ -108,7 +108,7 @@ class BLEConnection:
             self.beetleSerial.write(packet)
             print(f">> Send UPDATE to the beetle: {updatePacket['seq']}")
 
-            if (self.device.waitForNotifications(5) and self.device.delegate.isRxPacketReady and not self.isHandshakeRequire):
+            if (self.device.waitForNotifications(0.1) and self.device.delegate.isRxPacketReady and not self.isHandshakeRequire):
                 if (self.device.delegate.packetType ==  ACK and (self.device.delegate.seqReceived == updatePacket['seq'])):
                     print(">> Done update player")
                     print("_______________________________________________________________ ")
@@ -119,7 +119,7 @@ class BLEConnection:
         print(">> Performing Handshake...")
         print(">> Send SYN to the beetle")
         self.sendSYN(0)
-        if (self.device.waitForNotifications(5) and self.device.delegate.isRxPacketReady):
+        if (self.device.waitForNotifications(0.1) and self.device.delegate.isRxPacketReady):
             if (self.device.delegate.packetType ==  ACK):
                 self.sendACK(0)
                 self.isHandshakeRequire = False

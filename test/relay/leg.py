@@ -144,6 +144,7 @@ class BLEConnection:
                     print(f'{(totalBytesRx * 8)/(end_time - self.start_time)} bps')
                     print(f'{self.device.delegate.fragmentedPacketCounter} fragmented packets / {self.device.delegate.packetCounter} packets')
                     f = open("LegStat.txt", "a")
+                    f.write(f'{end_time - self.start_time} sec. ')
                     f.write(f'{(totalBytesRx * 8)/(end_time - self.start_time)} bps\t')
                     f.write(f'{self.device.delegate.fragmentedPacketCounter} fragmented packets / {self.device.delegate.packetCounter} packets\n')
                     f.close()

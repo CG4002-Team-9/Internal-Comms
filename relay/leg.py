@@ -97,7 +97,7 @@ class BLEConnection:
         print(">> Performing Handshake...")
         print(">> Send SYN to the beetle")
         self.sendSYN(0)
-        if (self.device.waitForNotifications(5) and self.device.delegate.isRxPacketReady):
+        if (self.device.waitForNotifications(0.1) and self.device.delegate.isRxPacketReady):
             if (self.device.delegate.packetType ==  ACK):
                 self.sendACK(0)
                 self.isHandshakeRequire = False
@@ -132,7 +132,7 @@ class BLEConnection:
         if ((self.device.delegate.invalidPacketCounter >= 5) or self.isHandshakeRequire):
             self.isHandshakeRequire = not self.performHandShake()
         else: 
-            if(self.device.waitForNotifications(1) and self.device.delegate.isRxPacketReady):
+            if(self.device.waitForNotifications(0.1) and self.device.delegate.isRxPacketReady):
                 ble1.parseRxPacket()
 
 if __name__ == '__main__':

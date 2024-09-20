@@ -425,7 +425,7 @@ void sendShotDataToServer(bool hitDetected, uint8_t playerHit)
     do {
       Serial.write((byte *) &shootPacket, sizeof(shootPacket));
       isWaitingForAck = true;
-      waitAck(500, shootPacket.seq);
+      waitAck(200, shootPacket.seq);
     } while (isWaitingForAck);
 
 }
@@ -450,7 +450,7 @@ void sendIMUDataToServer(int16_t ax, int16_t ay, int16_t az, int16_t gx, int16_t
 void handshake(uint8_t seq) {
   sendACK(seq);
   isHandshaked = false;
-  waitAck(500, seq);
+  waitAck(200, seq);
   if (!isWaitingForAck) { 
     isHandshaked = true;
   }

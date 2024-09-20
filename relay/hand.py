@@ -129,8 +129,9 @@ class BLEConnection:
             print(f">> Send UPDATE to the beetle: {updatePacket['seq']}")
 
             # wait for ack and check the ack seq
-            if (self.device.waitForNotifications(5) and self.device.delegate.isRxPacketReady and not self.isHandshakeRequire):
+            if (self.device.waitForNotifications(0.1) and self.device.delegate.isRxPacketReady and not self.isHandshakeRequire):
                 if (self.device.delegate.packetType ==  ACK and (self.device.delegate.seqReceived == updatePacket['seq'])):
+                    shootPacket['bullet'] = 0
                     print(">> Done update player")
                     print("_______________________________________________________________ ")
                     return
@@ -142,7 +143,7 @@ class BLEConnection:
         print(">> Performing Handshake...")
         print(">> Send SYN to the beetle")
         self.sendSYN(0)
-        if (self.device.waitForNotifications(5) and self.device.delegate.isRxPacketReady):
+        if (self.device.waitForNotifications(0.1) and self.device.delegate.isRxPacketReady):
             if (self.device.delegate.packetType ==  ACK):
                 self.sendACK(0)
                 self.isHandshakeRequire = False
@@ -181,7 +182,7 @@ class BLEConnection:
                 self.isAllDataReceived = False
 
             # break when received the last packet, or timeout, or received other types of packet that's not DATA
-            while (not self.isAllDataReceived and self.device.waitForNotifications(5) and self.device.delegate.isRxPacketReady): 
+            while (not self.isAllDataReceived and self.device.waitForNotifications(0.1) and self.device.delegate.isRxPacketReady): 
                 if (self.device.delegate.packetType != DATA):
                     break
                 
@@ -204,7 +205,7 @@ class BLEConnection:
         if ((self.device.delegate.invalidPacketCounter >= 5) or self.isHandshakeRequire):
             self.isHandshakeRequire = not self.performHandShake()
         else: 
-            if(self.device.waitForNotifications(1) and self.device.delegate.isRxPacketReady):
+            if(self.device.waitForNotifications(0.1) and self.device.delegate.isRxPacketReady):
                 ble1.parseRxPacket()
 
             # send update if needed

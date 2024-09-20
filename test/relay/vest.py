@@ -135,7 +135,7 @@ class BLEConnection:
                 self.beetleSerial.write(packet)
                 print(f">> Send UPDATE to the beetle: {updatePacket['seq']}")
 
-            if (self.device.waitForNotifications(1) and self.device.delegate.isRxPacketReady and not self.isHandshakeRequire):
+            if (self.device.waitForNotifications(0.1) and self.device.delegate.isRxPacketReady and not self.isHandshakeRequire):
                 if (self.device.delegate.packetType ==  ACK and (self.device.delegate.seqReceived == updatePacket['seq'])):
                     if (updatePacket['seq'] == 100):
                         end_time = time.time()
@@ -148,6 +148,7 @@ class BLEConnection:
                         print(f'{(self.device.delegate.packetCounter * 20 * 8)/(end_time - self.start_time)} bps')
                         print(f'{self.device.delegate.fragmentedPacketCounter} fragmented packets / {self.device.delegate.packetCounter} packets')
                         f = open("VestStat.txt", "a")
+                        f.write(f'{end_time - self.start_time} sec. ')
                         f.write(f'{(self.device.delegate.packetCounter * 20 * 8)/(end_time - self.start_time)} bps\t')
                         f.write(f'{self.device.delegate.fragmentedPacketCounter} fragmented packets / {self.device.delegate.packetCounter} packets\n')
                         f.close()
@@ -159,7 +160,7 @@ class BLEConnection:
         print(">> Performing Handshake...")
         print(">> Send SYN to the beetle")
         self.sendSYN(0)
-        if (self.device.waitForNotifications(5) and self.device.delegate.isRxPacketReady):
+        if (self.device.waitForNotifications(0.1) and self.device.delegate.isRxPacketReady):
             if (self.device.delegate.packetType ==  ACK):
                 self.sendACK(0)
                 self.isHandshakeRequire = False

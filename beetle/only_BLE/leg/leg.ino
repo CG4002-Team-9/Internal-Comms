@@ -50,7 +50,7 @@ void sendACK(uint8_t seq) {
 void handshake(uint8_t seq) {
   sendACK(seq);
   isHandshaked = false;
-  waitAck(500, seq);
+  waitAck(200, seq);
   if (!isWaitingForAck) { 
     isHandshaked = true;
   }
@@ -118,7 +118,7 @@ void loop() {
     do {
       sendKICK();
       isWaitingForAck = true;
-      waitAck(500, kickPacket.seq);
+      waitAck(200, kickPacket.seq);
     } while (isWaitingForAck);
 
     kickRand = random(3000, 8000);
