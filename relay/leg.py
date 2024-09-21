@@ -11,9 +11,11 @@ crc8 = Calculator(Crc8.CCITT)
 MAC_ADDR = "F4:B8:5E:42:61:55"  # leg, 3
 SERVICE_UUID = "0000dfb0-0000-1000-8000-00805f9b34fb"
 CHAR_UUID = "0000dfb1-0000-1000-8000-00805f9b34fb"
+ACK_TIMEOUT = 0.15
 
 # Packet Types
 SYN = 'S'
+SYNACK = 'C'
 ACK = 'A'
 KICK = 'K'
 
@@ -86,6 +88,11 @@ class BLEConnection:
         packet = bytes(SYN, 'utf-8') + bytes([np.uint8(seq)]) + bytes([0] * 17)
         packet = packet + (bytes)([np.uint8(crc8.checksum(packet))])
         self.beetleSerial.write(packet)
+        
+    def sendSYNACK(self, seq):
+        packet = bytes(SYNACK, 'utf-8') + bytes([np.uint8(seq)]) + bytes([0] * 17)
+        packet = packet + (bytes)([np.uint8(crc8.checksum(packet))])
+        self.beetleSerial.write(packet)
 
     def sendACK(self, seq):
         print(f"    Send ACK: {seq}")
@@ -97,9 +104,9 @@ class BLEConnection:
         print(">> Performing Handshake...")
         print(">> Send SYN to the beetle")
         self.sendSYN(0)
-        if (self.device.waitForNotifications(0.1) and self.device.delegate.isRxPacketReady):
-            if (self.device.delegate.packetType ==  ACK):
-                self.sendACK(0)
+        if (self.device.waitForNotifications(ACK_TIMEOUT) and self.device.delegate.isRxPacketReady):
+            if (self.device.delegate.packetType ==  SYNACK):
+                self.sendSYNACK(0)
                 self.isHandshakeRequire = False
                 print(">> Handshake Done.")
                 print("_______________________________________________________________ ")
@@ -132,7 +139,7 @@ class BLEConnection:
         if ((self.device.delegate.invalidPacketCounter >= 5) or self.isHandshakeRequire):
             self.isHandshakeRequire = not self.performHandShake()
         else: 
-            if(self.device.waitForNotifications(0.1) and self.device.delegate.isRxPacketReady):
+            if(self.device.waitForNotifications(ACK_TIMEOUT) and self.device.delegate.isRxPacketReady):
                 ble1.parseRxPacket()
 
 if __name__ == '__main__':

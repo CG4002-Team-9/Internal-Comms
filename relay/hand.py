@@ -11,11 +11,14 @@ crc8 = Calculator(Crc8.CCITT)
 MAC_ADDR = "F4:B8:5E:42:67:1B"  # hand, 2
 SERVICE_UUID = "0000dfb0-0000-1000-8000-00805f9b34fb"
 CHAR_UUID = "0000dfb1-0000-1000-8000-00805f9b34fb"
+IMU_TIMEOUT = 0.2
+ACK_TIMEOUT = 0.15
 
 imuDatasets = {}
 
 # Packet Types
 SYN = 'S'
+SYNACK = 'C'
 ACK = 'A'
 SHOOT = 'G'
 DATA = 'D'
@@ -36,12 +39,12 @@ shootPacket = {
 
 dataPacket = {
     'seq': 0,
-    'accX': 0,
-    'accY': 0,
-    'accZ': 0,
-    'gyrX': 0,
-    'gyrY': 0,
-    'gyrZ': 0 
+    'ax': 0,
+    'ay': 0,
+    'az': 0,
+    'gx': 0,
+    'gy': 0,
+    'gz': 0 
 }
 
 class MyDelegate(btle.DefaultDelegate):
@@ -108,6 +111,11 @@ class BLEConnection:
         packet = bytes(SYN, 'utf-8') + bytes([np.uint8(seq)]) + bytes([0] * 17)
         packet = packet + (bytes)([np.uint8(crc8.checksum(packet))])
         self.beetleSerial.write(packet)
+    
+    def sendSYNACK(self, seq):
+        packet = bytes(SYNACK, 'utf-8') + bytes([np.uint8(seq)]) + bytes([0] * 17)
+        packet = packet + (bytes)([np.uint8(crc8.checksum(packet))])
+        self.beetleSerial.write(packet)
 
     def sendACK(self, seq):
         print(f"    Send ACK: {seq}")
@@ -132,7 +140,7 @@ class BLEConnection:
             print(f">> Send UPDATE to the beetle: {updatePacket['seq']}")
 
             # wait for ack and check the ack seq
-            if (self.device.waitForNotifications(0.1) and self.device.delegate.isRxPacketReady and not self.isHandshakeRequire):
+            if (self.device.waitForNotifications(ACK_TIMEOUT) and self.device.delegate.isRxPacketReady and not self.isHandshakeRequire):
                 if (self.device.delegate.packetType ==  ACK and (self.device.delegate.seqReceived == updatePacket['seq'])):
                     shootPacket['bullet'] = updatePacket['bullet']
                     print(">> Done update player")
@@ -146,9 +154,9 @@ class BLEConnection:
         print(">> Performing Handshake...")
         print(">> Send SYN to the beetle")
         self.sendSYN(0)
-        if (self.device.waitForNotifications(0.1) and self.device.delegate.isRxPacketReady):
-            if (self.device.delegate.packetType ==  ACK):
-                self.sendACK(0)
+        if (self.device.waitForNotifications(ACK_TIMEOUT) and self.device.delegate.isRxPacketReady):
+            if (self.device.delegate.packetType ==  SYNACK):
+                self.sendSYNACK(0)
                 self.isHandshakeRequire = False
                 print(">> Handshake Done.")
                 print("_______________________________________________________________ ")
@@ -161,13 +169,14 @@ class BLEConnection:
 
         dataPacket['seq']  = self.device.delegate.seqReceived
         unpackFormat = "<hhhhhh" + str(5) + "s"
-        dataPacket['accX'], dataPacket['accY'], dataPacket['accZ'], dataPacket['gyrX'], dataPacket['gyrY'], dataPacket['gyrZ'], padding = struct.unpack(unpackFormat, self.device.delegate.payload)
+        dataPacket['ax'], dataPacket['ay'], dataPacket['az'], dataPacket['gx'], dataPacket['gy'], dataPacket['gz'], padding = struct.unpack(unpackFormat, self.device.delegate.payload)
         imuDatasets[self.imuSeq] = dataPacket.copy()
+
         while (dataPacket['seq'] >= self.imuSeq):
+            # {"0": {"seq": 0, "ax": 10, "ay": 20, "az": 30, "gx": 10, "gy": 20, "gz", 30}, "1": {...}, ...}
             imuDatasets[self.imuSeq] = dataPacket.copy()
             self.imuSeq += 1
-
-        print(f"    Updated {dataPacket}")
+        #print(f"    Updated {dataPacket}")
 
     def parseRxPacket(self):
         global imuDatasets
@@ -190,7 +199,7 @@ class BLEConnection:
             self.isAllDataReceived = False
 
             # break when received the last packet, or timeout, or received other types of packet that's not DATA
-            while (not self.isAllDataReceived and self.device.waitForNotifications(0.2)):
+            while (not self.isAllDataReceived and self.device.waitForNotifications(IMU_TIMEOUT)):
                 if (not self.device.delegate.isRxPacketReady): # in case of fragmentation
                     continue
                 if (self.device.delegate.packetType != DATA):
@@ -198,15 +207,17 @@ class BLEConnection:
                 
                 self.updateData()
 
-                if (dataPacket['seq'] == 100):
+                if (dataPacket['seq'] == 30):
                     self.isAllDataReceived = True
             
-            # wait until timeout
-            if (dataPacket['seq'] != 100):
-                dataPacket['seq'] = 100
+            # wait next data until timeout, make sure there is no empty data point
+            if (dataPacket['seq'] != 30):
+                dataPacket['seq'] = 30
                 self.updateData()
+
+            # all data is ready
             self.isAllDataReceived = True
-            print(imuDatasets)
+            #print(imuDatasets) # can store to file here (current format is {"0": {"seq": 0, "ax": 10, "ay": 20, "az": 30, "gx": 10, "gy": 20, "gz", 30}, "1": {...}, ...})
             print("_______________________________________________________________ ")
             self.imuSeq = 0
             imuDatasets.clear()

@@ -2,23 +2,33 @@
 #include "CRC8.h"
 
 #define SYN 'S'
+#define SYNACK 'C'
 #define ACK 'A'
 #define UPDATE 'U'
 #define DATA 'D'
 #define SHOOT 'G'
 #define INVALID_PACKET 'X'
+#define NOT_WAITING_FOR_ACK -1
+#define ACK_TIMEOUT 200
 
 struct PlayerState {
   uint8_t updateSeq = 99;
   uint8_t bullet = 6; //-> Store in EEPROM instead
-};
+} playerState;
 
 struct AckPacket {
   char packetType = ACK;
   uint8_t seq = 0;
   byte padding[17] = {0};
   uint8_t crc;
-};
+} ackPacket;
+
+struct SynAckPacket {
+  char packetType = SYNACK;
+  uint8_t seq = 0;
+  byte padding[17] = {0};
+  uint8_t crc;
+} synAckPacket;
 
 struct ShootPacket {
   char packetType = SHOOT;
@@ -27,7 +37,7 @@ struct ShootPacket {
   uint8_t bullet = 0;
   byte padding[15] = {0};
   uint8_t crc;
-};
+} shootPacket;
 
 struct DataPacket{
   char packetType = DATA;
@@ -40,19 +50,17 @@ struct DataPacket{
   int16_t gyrZ;
   byte padding[5] = {0};
   uint8_t crc;
-};
+} dataPacket;
 
-PlayerState playerState;
-AckPacket ackPacket;
-ShootPacket shootPacket;
-DataPacket dataPacket;
+struct AckTracker{
+  int16_t synAck = -1;
+  int16_t shootAck = -1;
+} ackTracker;
+
 CRC8 crc;
 uint8_t globalSeq = 0;
-bool isHandshaking = false;
-bool isHandshaked = false;
-bool isWaitingForAck = false;
-int waitingAckSeq;
 int bulletAddr = 0;
+bool isHandshaked = false;
 unsigned long previousDataMillis = 0;
 unsigned long previousShootMillis = 0; 
 
@@ -99,21 +107,29 @@ void sendSHOOT() {
   Serial.write((byte *) &shootPacket, sizeof(shootPacket));
 }
 
-void handshake(uint8_t seq) {
-  sendACK(seq);
-  isHandshaked = false;
-  waitAck(200, seq);
-  if (!isWaitingForAck) { 
-    isHandshaked = true;
-  }
+void sendSYNACK() {
+  crc.reset();
+  crc.add((byte *) &synAckPacket, sizeof(synAckPacket) - 1);
+  synAckPacket.crc = crc.calc();
+  Serial.write((byte *) &synAckPacket, sizeof(synAckPacket));
 }
 
-void waitAck(int ms, uint8_t seq) {
-  waitingAckSeq = seq;
+void handshake(uint8_t seq) {
+  isHandshaked = false;
+  do {
+      sendSYNACK();
+      ackTracker.synAck = seq;
+      waitAck(ACK_TIMEOUT);
+    } while (ackTracker.synAck != NOT_WAITING_FOR_ACK);
+  
+  isHandshaked = true;
+}
+
+void waitAck(int ms) {
   for (int i = 0; i < ms; i++) {
     if (Serial.available() >= 20) {
-      handleRxPacket();
-      if (!isWaitingForAck) {
+      char packetTypeRx = handleRxPacket();
+      if (packetTypeRx == ACK || packetTypeRx == SYNACK){
         return;
       }
     }
@@ -149,10 +165,14 @@ char handleRxPacket() {
     case SYN:
       handshake(seqReceived);
       break;
+    
+    case SYNACK:
+      ackTracker.synAck = NOT_WAITING_FOR_ACK;
+      break;
 
     case ACK:
-      if (waitingAckSeq == seqReceived) {
-        isWaitingForAck = false;
+      if (ackTracker.shootAck == seqReceived) {
+        ackTracker.shootAck = NOT_WAITING_FOR_ACK;
       }
       break;
 
@@ -180,9 +200,9 @@ void loop() {
     getShootPacket();
     do {
       sendSHOOT();
-      isWaitingForAck = true;
-      waitAck(200, shootPacket.seq);
-    } while (isWaitingForAck);
+      ackTracker.shootAck = shootPacket.seq;
+      waitAck(ACK_TIMEOUT);
+    } while (ackTracker.shootAck != NOT_WAITING_FOR_ACK);
 
     shootRand = random(2000, 8000);
     previousShootMillis = currentMillis;

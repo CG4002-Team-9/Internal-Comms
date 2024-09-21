@@ -1,31 +1,41 @@
 #include "CRC8.h"
 
 #define SYN 'S'
+#define SYNACK 'C'
 #define ACK 'A'
 #define UPDATE 'U'
 #define INVALID_PACKET 'X'
+#define NOT_WAITING_FOR_ACK -1
 
 struct PlayerState {
   uint8_t updateSeq = 99;
   uint8_t audio = 0;
   uint8_t reload = 0;
-};
+} playerState;
 
 struct AckPacket {
   char packetType = ACK;
   uint8_t seq = 0;
   byte padding[17] = {0};
   uint8_t crc;
-};
+} ackPacket;
 
-PlayerState playerState;
-AckPacket ackPacket;
+struct SynAckPacket {
+  char packetType = SYNACK;
+  uint8_t seq = 0;
+  byte padding[17] = {0};
+  uint8_t crc;
+} synAckPacket;
+
+struct AckTracker{
+  int16_t synAck = -1;
+  int16_t kickAck = -1;
+} ackTracker;
+
 CRC8 crc;
 uint8_t globalSeq = 0;
-bool isHandshaking = false;
 bool isHandshaked = false;
-bool isWaitingForAck = false;
-int waitingAckSeq;
+int timeout = 200;
 
 void sendACK(uint8_t seq) {
   ackPacket.seq = seq;
@@ -35,21 +45,28 @@ void sendACK(uint8_t seq) {
   Serial.write((byte *) &ackPacket, sizeof(ackPacket));
 }
 
-void handshake(uint8_t seq) {
-  sendACK(seq);
-  isHandshaked = false;
-  waitAck(200, seq);
-  if (!isWaitingForAck) { 
-    isHandshaked = true;
-  }
+void sendSYNACK() {
+  crc.reset();
+  crc.add((byte *) &synAckPacket, sizeof(synAckPacket) - 1);
+  synAckPacket.crc = crc.calc();
+  Serial.write((byte *) &synAckPacket, sizeof(synAckPacket));
 }
 
-void waitAck(int ms, uint8_t seq) {
-  waitingAckSeq = seq;
+void handshake(uint8_t seq) {
+ isHandshaked = false;
+  do {
+      sendSYNACK();
+      ackTracker.synAck = seq;
+      waitAck(timeout);
+    } while (ackTracker.synAck != NOT_WAITING_FOR_ACK);
+  
+  isHandshaked = true;
+}
+void waitAck(int ms) {
   for (int i = 0; i < ms; i++) {
     if (Serial.available() >= 20) {
-      handleRxPacket();
-      if (!isWaitingForAck) {
+      char packetTypeRx = handleRxPacket();
+      if (packetTypeRx == ACK || packetTypeRx == SYNACK){
         return;
       }
     }
@@ -86,10 +103,8 @@ char handleRxPacket() {
       handshake(seqReceived);
       break;
 
-    case ACK:
-      if (waitingAckSeq == seqReceived) {
-        isWaitingForAck = false;
-      }
+    case SYNACK:
+      ackTracker.synAck = NOT_WAITING_FOR_ACK;
       break;
 
     default:

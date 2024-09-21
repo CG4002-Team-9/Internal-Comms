@@ -11,17 +11,18 @@ crc8 = Calculator(Crc8.CCITT)
 MAC_ADDR = "F4:B8:5E:42:6D:2D"  #vest, 1
 SERVICE_UUID = "0000dfb0-0000-1000-8000-00805f9b34fb"
 CHAR_UUID = "0000dfb1-0000-1000-8000-00805f9b34fb"
+ACK_TIMEOUT = 0.15
 
 # Packet Types
 SYN = 'S'
+SYNACK = 'C'
 ACK = 'A'
 UPDATE = 'U'
 
 updatePacket = {
     'seq': 0,
-    'audio': 0,
-    'reload': 0,
-    'bullet': 6
+    'hp': 90,
+    'shield_hp': 10
 }
 
 class MyDelegate(btle.DefaultDelegate):
@@ -87,6 +88,11 @@ class BLEConnection:
         packet = bytes(SYN, 'utf-8') + bytes([np.uint8(seq)]) + bytes([0] * 17)
         packet = packet + (bytes)([np.uint8(crc8.checksum(packet))])
         self.beetleSerial.write(packet)
+        
+    def sendSYNACK(self, seq):
+        packet = bytes(SYNACK, 'utf-8') + bytes([np.uint8(seq)]) + bytes([0] * 17)
+        packet = packet + (bytes)([np.uint8(crc8.checksum(packet))])
+        self.beetleSerial.write(packet)
 
     def sendACK(self, seq):
         print(f"    Send ACK: {seq}")
@@ -101,14 +107,13 @@ class BLEConnection:
             
         for i in range(5):
             packet = bytes(UPDATE, 'utf-8') + bytes([np.uint8(updatePacket['seq']),
-                                            np.uint8(updatePacket['audio']),
-                                            np.uint8(updatePacket['reload']),
-                                            np.uint8(updatePacket['bullet'])]) + bytes([0] * 14)
+                                            np.uint8(updatePacket['hp']),
+                                            np.uint8(updatePacket['shield_hp'])]) + bytes([0] * 15)
             packet = packet + (bytes)([np.uint8(crc8.checksum(packet))])
             self.beetleSerial.write(packet)
             print(f">> Send UPDATE to the beetle: {updatePacket['seq']}")
 
-            if (self.device.waitForNotifications(0.1) and self.device.delegate.isRxPacketReady and not self.isHandshakeRequire):
+            if (self.device.waitForNotifications(ACK_TIMEOUT) and self.device.delegate.isRxPacketReady and not self.isHandshakeRequire):
                 if (self.device.delegate.packetType ==  ACK and (self.device.delegate.seqReceived == updatePacket['seq'])):
                     print(">> Done update player")
                     print("_______________________________________________________________ ")
@@ -119,9 +124,9 @@ class BLEConnection:
         print(">> Performing Handshake...")
         print(">> Send SYN to the beetle")
         self.sendSYN(0)
-        if (self.device.waitForNotifications(0.1) and self.device.delegate.isRxPacketReady):
-            if (self.device.delegate.packetType ==  ACK):
-                self.sendACK(0)
+        if (self.device.waitForNotifications(ACK_TIMEOUT) and self.device.delegate.isRxPacketReady):
+            if (self.device.delegate.packetType ==  SYNACK):
+                self.sendSYNACK(0)
                 self.isHandshakeRequire = False
                 print(">> Handshake Done.")
                 print("_______________________________________________________________ ")
@@ -138,10 +143,10 @@ class BLEConnection:
         if ((self.device.delegate.invalidPacketCounter >= 5) or self.isHandshakeRequire):
             self.isHandshakeRequire = not self.performHandShake()
         else: 
-            isUpdateNeed = updatePacket['audio']
+            isUpdateNeed = updatePacket['hp']
             if (current_time - previous_time >= isUpdateNeed):
             #if (isUpdateNeed):
-                updatePacket['audio'] = random.randint(1,6)
+                updatePacket['hp'] = random.randint(1,10)
                 ble1.sendUPDATE()
                 previous_time = current_time
 
