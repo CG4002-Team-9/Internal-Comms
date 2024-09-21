@@ -198,10 +198,13 @@ class BLEConnection:
                 
                 self.updateData()
 
-                if (dataPacket['seq'] == 30):
+                if (dataPacket['seq'] == 100):
                     self.isAllDataReceived = True
             
             # wait until timeout
+            if (dataPacket['seq'] != 100):
+                dataPacket['seq'] = 100
+                self.updateData()
             self.isAllDataReceived = True
             print(imuDatasets)
             print("_______________________________________________________________ ")
