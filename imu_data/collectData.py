@@ -54,12 +54,12 @@ def get_imu_data():
     print(len(dataPacket["gx"]))
     print(len(dataPacket["gy"]))
     print(len(dataPacket["gz"]))
-    dataPacket["ax"] = []
-    dataPacket["ay"] = []
-    dataPacket["az"] = []
-    dataPacket["gx"] = []
-    dataPacket["gy"] = []
-    dataPacket["gz"] = []
+    dataPacket["ax"].clear()
+    dataPacket["ay"].clear()
+    dataPacket["az"].clear()
+    dataPacket["gx"].clear()
+    dataPacket["gy"].clear()
+    dataPacket["gz"].clear()
 
     pass
 
@@ -140,27 +140,34 @@ class BLEConnection:
         packet = packet + (bytes)([np.uint8(CRC8.checksum(packet))])
         self.beetleSerial.write(packet)
     
-    def sendUPDATE(self):
+    def sendUPDATE(self, bullets):
         self.isUpdateNeeded = True
-        updatePacket['seq'] += 1
+        seq = updatePacket['seq'] 
         for i in range(5):
-            packet = bytes(UPDATE, 'utf-8') + bytes([0] * 2) +bytes([np.uint8(updatePacket['bullet'])]) + bytes([0] * 14)
+            packet = bytes(UPDATE, 'utf-8') + bytes([np.uint8(seq)]) + bytes([0] * 2) + bytes([np.uint8(bullets)]) + bytes([0] * 14)
             packet = packet + (bytes)([np.uint8(CRC8.checksum(packet))])
             self.beetleSerial.write(packet)
-            print(f"[BLE] >> Send UPDATE to the beetle: {updatePacket['seq']}")
+            print(f"[BLE] >> Send UPDATE to the beetle: {seq}")
 
             # wait for ack and check the ack seq
             if (self.device.waitForNotifications(ACK_TIMEOUT) and self.device.delegate.isRxPacketReady and not self.isHandshakeRequire):
-                if (self.device.delegate.packetType ==  ACK and (self.device.delegate.seqReceived == updatePacket['seq'])):
+                # successfully update
+                if (self.device.delegate.packetType ==  ACK and (self.device.delegate.seqReceived == seq)):
                     self.isUpdateNeeded = False
-                    updatePacket['seq'] += 1
-                    if (updatePacket['seq']) > 100:
-                        updatePacket['seq'] = 0
+                    seq += 1
+                    if (seq) > 100:
+                        seq = 0
+                    updatePacket['seq'] = seq
                     print("[BLE] >> Done update player")
                     print("[BLE] _______________________________________________________________ ")
-                    return
+                    return 
+                # if recevied data instead of ACK, collect the data first
                 elif (self.device.delegate.packetType ==  DATA):
                     self.parseRxPacket()
+
+            elif (self.isHandshakeRequire):
+                break
+        # after 5 attempts of sending update
         self.isHandshakeRequire = True
 
     def performHandShake(self):
@@ -191,12 +198,12 @@ class BLEConnection:
         print(ax, ay, az, gx, gy, gz)
         if dataPacket['seq'] == 0:
             self.imuSeq = 0
-            dataPacket['ax'] = []
-            dataPacket['ay'] = []
-            dataPacket['az'] = []
-            dataPacket['gx'] = []
-            dataPacket['gy'] = []
-            dataPacket['gz'] = []
+            dataPacket["ax"].clear()
+            dataPacket["ay"].clear()
+            dataPacket["az"].clear()
+            dataPacket["gx"].clear()
+            dataPacket["gy"].clear()
+            dataPacket["gz"].clear()
 
         while (dataPacket['seq'] >= self.imuSeq):
             dataPacket['ax'].append(ax)

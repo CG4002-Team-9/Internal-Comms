@@ -1,4 +1,7 @@
 .venv
 .env
 *Stat.txt
-test/
+test/beetle/hand/hand.ino
+test/relay/hand.py
+test/beetle/hand/hand.ino
+test/relay/hand.py
