@@ -159,7 +159,6 @@ class BLEConnection:
     
     def sendUPDATE(self):
         print("[BLE] >> Sending UPDATE...")
-        # print updatepacket structure
         print(f"[BLE] >> Update Packet: {updatePacket}")
         for i in range(5):
             packet = bytes(UPDATE, 'utf-8') + bytes([np.uint8(updatePacket['seq'] )]) + bytes([0] * 2) + bytes([np.uint8(updatePacket['bullets'])]) + bytes([np.uint8(updatePacket['isReload'])]) + bytes([0] * 13)
@@ -178,7 +177,7 @@ class BLEConnection:
                     print("[BLE] _______________________________________________________________ ")
                     return 
                 # if recevied data instead of ACK, collect the data first
-                elif (self.device.delegate.packetType ==  DATA):
+                elif (self.device.delegate.packetType == DATA):
                     self.parseRxPacket()
 
             elif (self.isHandshakeRequire):
