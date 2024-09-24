@@ -27,7 +27,8 @@ RABBITMQ_PORT = int(os.getenv('RABBITMQ_PORT', '5672'))
 UPDATE_GE_QUEUE = os.getenv('UPDATE_GE_QUEUE', 'update_ge_queue')
 
 # Player ID this server is handling
-PLAYER_ID = int(os.getenv('PLAYER_ID', '2'))
+PLAYER_ID = int(os.getenv('PLAYER_ID', '1'))
+print(f'[DEBUG] Player ID: {PLAYER_ID}')
 
 # BLE
 MAC_ADDR = os.getenv(f'LEG_P{PLAYER_ID}')
