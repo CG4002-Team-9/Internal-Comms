@@ -281,12 +281,12 @@ class BLEConnection:
                             self.sendUPDATE()
                         if (self.device.waitForNotifications(0.1) and self.device.delegate.isRxPacketReady):
                             self.parseRxPacket()
-                        await asyncio.sleep(0.1)
+                    await asyncio.sleep(0.1)    
             except BTLEDisconnectError:
                 print("[BLE] >> Disconnected.")
                 connectionStatus['isConnected'] = False
                 connectionStatus['toSendConnectionStatus'] = True
-                pass
+                await asyncio.sleep(0.1)
 
 # Placeholder functions for Bluetooth communication
 def get_imu_data():
@@ -330,23 +330,17 @@ class HandBeetleServer:
         self.should_run = True
 
     async def setup_rabbitmq(self):
-        while True:
-            try:
-                print('[DEBUG] Connecting to RabbitMQ broker...')
-                self.rabbitmq_connection = await aio_pika.connect_robust(
-                    host=BROKER,
-                    port=RABBITMQ_PORT,
-                    login=BROKERUSER,
-                    password=PASSWORD,
-                )
-                self.channel = await self.rabbitmq_connection.channel()
-                await self.channel.declare_queue(AI_QUEUE, durable=True)
-                await self.channel.declare_queue(UPDATE_GE_QUEUE, durable=True)
-                print(f'[DEBUG] Connected to RabbitMQ broker at {BROKER}:{RABBITMQ_PORT}')
-                break  # Break out of loop once connected
-            except Exception as e:
-                print(f'[ERROR] RabbitMQ connection failed: {e}')
-                await asyncio.sleep(1.5)  # Wait before retrying connection
+        print('[DEBUG] Connecting to RabbitMQ broker...')
+        self.rabbitmq_connection = await aio_pika.connect_robust(
+            host=BROKER,
+            port=RABBITMQ_PORT,
+            login=BROKERUSER,
+            password=PASSWORD,
+        )
+        self.channel = await self.rabbitmq_connection.channel()
+        await self.channel.declare_queue(AI_QUEUE, durable=True)
+        await self.channel.declare_queue(UPDATE_GE_QUEUE, durable=True)
+        print(f'[DEBUG] Connected to RabbitMQ broker at {BROKER}:{RABBITMQ_PORT}')
 
     async def send_imu_data(self):
         while self.should_run:
@@ -408,50 +402,55 @@ class HandBeetleServer:
             await asyncio.sleep(0.1)
     
     async def process_mqtt_messages(self, mqtt_client):
-        while True:
+        # Subscribe to MQTT topic
+        await mqtt_client.subscribe(MQTT_TOPIC_UPDATE_EVERYONE, qos=2)
+        print(f'[DEBUG] Subscribed to MQTT topic {MQTT_TOPIC_UPDATE_EVERYONE}')
+        
+        async for message in mqtt_client.messages:
+            payload = message.payload.decode('utf-8')
             try:
-                # Subscribe to MQTT topic
-                await mqtt_client.subscribe(MQTT_TOPIC_UPDATE_EVERYONE, qos=2)
-                print(f'[DEBUG] Subscribed to MQTT topic {MQTT_TOPIC_UPDATE_EVERYONE}')
+                data = json.loads(payload)
+                print(f'[DEBUG] Received MQTT message: {data}')
+                game_state = data.get('game_state', {})
+                action = data.get('action', None)
+                player_id_for_action = data.get('player_id', None)
+                player_key = f'p{PLAYER_ID}'
+                bullets = game_state.get(player_key).get('bullets', None)
+                updatePacket['bullets'] = bullets
+                updatePacket['isUpdateNeeded'] = True
+                if action is not None and player_id_for_action == PLAYER_ID and action == 'reload':
+                    updatePacket['isReload'] = True
+                    print(f'[DEBUG] Player {PLAYER_ID} is reloading')
+                else:
+                    updatePacket['isReload'] = False
                 
-                async for message in mqtt_client.messages:
-                    payload = message.payload.decode('utf-8')
-                    try:
-                        data = json.loads(payload)
-                        print(f'[DEBUG] Received MQTT message: {data}')
-                        game_state = data.get('game_state', {})
-                        action = data.get('action', None)
-                        player_id_for_action = data.get('player_id', None)
-                        player_key = f'p{PLAYER_ID}'
-                        bullets = game_state.get(player_key).get('bullets', None)
-                        updatePacket['bullets'] = bullets
-                        updatePacket['isUpdateNeeded'] = True
-                        if action is not None and player_id_for_action == PLAYER_ID and action == 'reload':
-                            updatePacket['isReload'] = True
-                            print(f'[DEBUG] Player {PLAYER_ID} is reloading')
-                        else:
-                            updatePacket['isReload'] = False
-
-                    except json.JSONDecodeError:
-                        print(f'[ERROR] Invalid JSON payload: {payload}')
-                    except Exception as e:
-                        print(f'[ERROR] {e}')
+            except json.JSONDecodeError:
+                print(f'[ERROR] Invalid JSON payload: {payload}')
             except Exception as e:
-                print(f'[ERROR] MQTT connection failed: {e}')
-                await asyncio.sleep(1.5)  # Wait before retrying
+                print(f'[ERROR] {e}')
                 
     async def run(self):
         await self.setup_rabbitmq()
 
-        while True:
+        mqtt_client = None
+        while True:  # Loop for reconnection attempts
             try:
-                async with aiomqtt.Client(
+                if mqtt_client:
+                    mqtt_client = None
+                    
+                print('[DEBUG] Attempting MQTT connection...')
+                mqtt_client = aiomqtt.Client(
                     hostname=BROKER,
                     port=MQTT_PORT,
                     username=BROKERUSER,
                     password=PASSWORD,
                     identifier=f'hand_beetle_server{PLAYER_ID}',
-                ) as mqtt_client:
+                    keepalive=60  # Increase the keepalive to ensure regular pings
+                )
+                
+                async with mqtt_client:
+                    print(f'[DEBUG] Connected to MQTT broker at {BROKER}:{MQTT_PORT}')
+                    
                     await asyncio.gather(
                         self.send_imu_data(),
                         self.send_gun_action(),
@@ -460,8 +459,7 @@ class HandBeetleServer:
                     )
             except Exception as e:
                 print(f'[ERROR] MQTT connection error: {e}')
-                await asyncio.sleep(1.5)  # Wait before retrying the connection
-
+                await asyncio.sleep(5)  # Delay before retrying the connection
 
 async def main():
     await asyncio.gather(hand_beetle_server.run(), ble1.run())
