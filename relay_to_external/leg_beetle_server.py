@@ -24,21 +24,16 @@ PASSWORD = os.getenv('PASSWORD')
 RABBITMQ_PORT = int(os.getenv('RABBITMQ_PORT', '5672'))
 
 # RabbitMQ queue
-UPDATE_GE_QUEUE = 'update_ge_queue'
-
-# Player ID this server is handling
-PLAYER_ID = int(os.getenv('PLAYER_ID', '1'))
+UPDATE_GE_QUEUE = os.getenv('UPDATE_GE_QUEUE', 'update_ge_queue')
 
 # Player ID this server is handling
 PLAYER_ID = int(os.getenv('PLAYER_ID', '2'))
 
 # BLE
-leg_p1 = ""
-leg_p2 = "F4:B8:5E:42:61:55"
-MAC_ADDR = leg_p2
+MAC_ADDR = os.getenv(f'LEG_P{PLAYER_ID}')
 SERVICE_UUID = "0000dfb0-0000-1000-8000-00805f9b34fb"
 CHAR_UUID = "0000dfb1-0000-1000-8000-00805f9b34fb"
-ACK_TIMEOUT = 0.2
+ACK_TIMEOUT = 0.5
 CRC8 = Calculator(Crc8.CCITT)
 
 # Packet Types

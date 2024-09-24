@@ -23,19 +23,16 @@ PASSWORD = os.getenv('PASSWORD')
 MQTT_PORT = int(os.getenv('MQTT_PORT', '1883'))
 
 # MQTT topic
-MQTT_TOPIC_UPDATE_EVERYONE = 'update_everyone'
+MQTT_TOPIC_UPDATE_EVERYONE = os.getenv('MQTT_TOPIC_UPDATE_EVERYONE', 'update_everyone')
 
 # Player ID this server is handling
 PLAYER_ID = int(os.getenv('PLAYER_ID', '2'))
 
 # BLE
-chest_p1 = ""
-chest_p2 = "F4:B8:5E:42:6D:2D"
-leg_p2 = "F4:B8:5E:42:61:55"
-MAC_ADDR = leg_p2
+MAC_ADDR = os.getenv(f'CHEST_P{PLAYER_ID}')
 SERVICE_UUID = "0000dfb0-0000-1000-8000-00805f9b34fb"
 CHAR_UUID = "0000dfb1-0000-1000-8000-00805f9b34fb"
-ACK_TIMEOUT = 0.2
+ACK_TIMEOUT = 0.5
 CRC8 = Calculator(Crc8.CCITT)
 
 # Packet Types
