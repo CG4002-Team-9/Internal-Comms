@@ -186,6 +186,8 @@ class BLEConnection:
                     else:
                         if (updatePacket['isUpdateNeeded']):
                             self.sendUPDATE()
+                        if (self.device.waitForNotifications(0.1) and self.device.delegate.isRxPacketReady):
+                            pass
                     await asyncio.sleep(0.1)
 
             except BTLEDisconnectError:
@@ -302,7 +304,7 @@ class ChestBeetleServer:
             
 
 async def main():
-    await asyncio.gather(chest_beetle_server.run(), ble1.run())
+    await asyncio.gather(ble1.run(), chest_beetle_server.run() )
 
 if __name__ == '__main__':
     chest_beetle_server = ChestBeetleServer()
