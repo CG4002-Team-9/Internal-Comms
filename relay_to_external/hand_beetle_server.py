@@ -322,7 +322,7 @@ def get_gun_action():
     else:
         return None
 
-class HandBeetleServer:
+class GloveBeetleServer:
     def __init__(self):
         self.rabbitmq_connection = None
         self.channel = None
@@ -443,7 +443,7 @@ class HandBeetleServer:
                     port=MQTT_PORT,
                     username=BROKERUSER,
                     password=PASSWORD,
-                    identifier=f'hand_beetle_server{PLAYER_ID}',
+                    identifier=f'glove_beetle_server{PLAYER_ID}',
                     keepalive=60  # Increase the keepalive to ensure regular pings
                 )
                 
@@ -461,16 +461,16 @@ class HandBeetleServer:
                 await asyncio.sleep(5)  # Delay before retrying the connection
 
 async def main():
-    await asyncio.gather(hand_beetle_server.run(), ble1.run())
+    await asyncio.gather(glove_beetle_server.run(), ble1.run())
 
 if __name__ == '__main__':
-    hand_beetle_server = HandBeetleServer()
+    glove_beetle_server = GloveBeetleServer()
     #mac_addr = f'MAC_ADDR_{PLAYER_ID}'
     ble1 = BLEConnection(MAC_ADDR, SERVICE_UUID, CHAR_UUID)
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print('[DEBUG] Hand Beetle Server stopped by user')
-        hand_beetle_server.should_run = False
+        print('[DEBUG] Glove Beetle Server stopped by user')
+        glove_beetle_server.should_run = False
     except Exception as e:
         print(f'[ERROR] {e}')

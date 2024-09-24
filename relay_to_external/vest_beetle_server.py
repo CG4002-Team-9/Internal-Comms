@@ -196,7 +196,7 @@ class BLEConnection:
                 connectionStatus['toSendConnectionStatus'] = True
                 await asyncio.sleep(0.1)
 
-class ChestBeetleServer:
+class VestBeetleServer:
     def __init__(self):
         self.rabbitmq_connection = None
         self.channel = None
@@ -221,7 +221,7 @@ class ChestBeetleServer:
                 message = {
                     "game_state": {
                         f"p{PLAYER_ID}": {
-                            "chest_connected": connectionStatus['isConnected'],
+                            "vest_connected": connectionStatus['isConnected'],
                         }
                     },
                     "update": True
@@ -287,7 +287,7 @@ class ChestBeetleServer:
                     port=MQTT_PORT,
                     username=BROKERUSER,
                     password=PASSWORD,
-                    identifier=f'chest_beetle_server{PLAYER_ID}',
+                    identifier=f'vest_beetle_server{PLAYER_ID}',
                     keepalive=60
                 )
                 
@@ -304,15 +304,15 @@ class ChestBeetleServer:
             
 
 async def main():
-    await asyncio.gather(ble1.run(), chest_beetle_server.run() )
+    await asyncio.gather(ble1.run(), vest_beetle_server.run() )
 
 if __name__ == '__main__':
-    chest_beetle_server = ChestBeetleServer()
+    vest_beetle_server = VestBeetleServer()
     ble1 = BLEConnection(MAC_ADDR, SERVICE_UUID, CHAR_UUID)
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print('[DEBUG] Chest Beetle Server stopped by user')
-        chest_beetle_server.should_run = False
+        print('[DEBUG] Vest Beetle Server stopped by user')
+        vest_beetle_server.should_run = False
     except Exception as e:
         print(f'[ERROR] {e}')

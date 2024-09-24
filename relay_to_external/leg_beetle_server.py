@@ -42,6 +42,11 @@ SYNACK = 'C'
 ACK = 'A'
 KICK = 'K'
 
+connectionStatus = {
+    'isConnected': False,
+    'toSendConnectionStatus': False
+}
+
 kickPacket = {
     'seq': 0,
     'isKickUpdate': False
@@ -132,6 +137,8 @@ class BLEConnection:
                     self.device.delegate.invalidPacketCounter = 0
                 print("[BLE] >> Handshake Done.")
                 print("[BLE] _______________________________________________________________ ")
+                connectionStatus['isConnected'] = True
+                connectionStatus['toSendConnectionStatus'] = True
                 return True
         print("[BLE] >> Handshake Failed.")
         return False
@@ -170,12 +177,15 @@ class BLEConnection:
                     if ((self.device.delegate.invalidPacketCounter >= 5) or self.isHandshakeRequire):
                         self.isHandshakeRequire = not self.performHandShake()
                     else:
-                        if(self.device.waitForNotifications(0.2) and self.device.delegate.isRxPacketReady):
+                        if(self.device.waitForNotifications(0.1) and self.device.delegate.isRxPacketReady):
                             self.parseRxPacket()
                         await asyncio.sleep(0.1)
             except BTLEDisconnectError:
-                pass
-
+                print("[BLE] >> Disconnected.")
+                connectionStatus['isConnected'] = False
+                connectionStatus['toSendConnectionStatus'] = True
+                await asyncio.sleep(0.1)
+                
 # Placeholder function for Bluetooth communication
 def get_soccer_action():
     """
@@ -213,10 +223,30 @@ class LegBeetleServer:
         await self.channel.declare_queue(UPDATE_GE_QUEUE, durable=True)
         print(f'[DEBUG] Connected to RabbitMQ broker at {BROKER}:{RABBITMQ_PORT}')
 
+    async def send_connection_status(self):
+        while self.should_run:
+            toSend = connectionStatus['toSendConnectionStatus']
+            if toSend:
+                message = {
+                    "game_state": {
+                        f"p{PLAYER_ID}": {
+                            "leg_connected": connectionStatus['isConnected'],
+                        }
+                    },
+                    "update": True
+                }
+                message_body = json.dumps(message).encode('utf-8')
+                await self.channel.default_exchange.publish(
+                    aio_pika.Message(body=message_body),
+                    routing_key=UPDATE_GE_QUEUE,
+                )
+                connectionStatus['toSendConnectionStatus'] = False
+                print(f'[DEBUG] Published connection status to {UPDATE_GE_QUEUE}')
+            await asyncio.sleep(0.1)
+    
     async def send_soccer_action(self):
         while self.should_run:
             action_data = get_soccer_action()
-            #print(f"[BLE]     Relay {action_data}")
             if action_data:
                 message_body = json.dumps(action_data).encode('utf-8')
                 await self.channel.default_exchange.publish(
@@ -228,15 +258,13 @@ class LegBeetleServer:
 
     async def run(self):
         await self.setup_rabbitmq()
-        # Start sending soccer actions
-        await self.send_soccer_action()
+        await asyncio.gather(self.send_soccer_action(), self.send_connection_status())
 
 async def main():
     await asyncio.gather(leg_beetle_server.run(), ble1.run())
 
 if __name__ == '__main__':
     leg_beetle_server = LegBeetleServer()
-    #mac_addr = f'MAC_ADDR_{PLAYER_ID}'
     ble1 = BLEConnection(MAC_ADDR, SERVICE_UUID, CHAR_UUID)
     try:
         asyncio.run(main())
