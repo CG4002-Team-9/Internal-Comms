@@ -45,13 +45,14 @@ KICK = 'K'
 
 connectionStatus = {
     'isConnected': False,
-    'toSendConnectionStatus': False
 }
+connectionStatusQueue = []
 
 kickPacket = {
     'seq': 0,
     'isKickUpdate': False
 }
+kickPacketQueue = []
 
 class MyDelegate(btle.DefaultDelegate):
     def __init__(self):
@@ -139,7 +140,7 @@ class BLEConnection:
                 print("[BLE] >> Handshake Done.")
                 print("[BLE] _______________________________________________________________ ")
                 connectionStatus['isConnected'] = True
-                connectionStatus['toSendConnectionStatus'] = True
+                connectionStatusQueue.append(connectionStatus.copy())
                 return True
         print("[BLE] >> Handshake Failed.")
         return False
@@ -152,9 +153,9 @@ class BLEConnection:
         if (packetType == KICK):
             self.sendACK(seqReceived)
             if (kickPacket['seq'] != seqReceived):
-                kickPacket['isKickUpdate'] = True
                 kickPacket['seq']  = seqReceived
                 print(f"[BLE]     Updated {kickPacket}")
+                kickPacketQueue.append(kickPacket.copy())
                 print("[BLE] _______________________________________________________________ ")
         
         elif (packetType == SYNACK):
@@ -184,7 +185,7 @@ class BLEConnection:
             except BTLEDisconnectError:
                 print("[BLE] >> Disconnected.")
                 connectionStatus['isConnected'] = False
-                connectionStatus['toSendConnectionStatus'] = True
+                connectionStatusQueue.append(connectionStatus.copy())
                 await asyncio.sleep(0.1)
                 
 # Placeholder function for Bluetooth communication
@@ -193,9 +194,9 @@ def get_soccer_action():
     Simulate checking for a soccer action from the wearable.
     Replace this function with actual Bluetooth communication code.
     """
-    action_occurred = kickPacket['isKickUpdate']
+    action_occurred = len(kickPacketQueue) > 0
     if action_occurred:
-        kickPacket['isKickUpdate'] = False
+        myKickPacket = kickPacketQueue.pop(0)
         return {
             'action': True,
             'player_id': PLAYER_ID,
@@ -226,12 +227,13 @@ class LegBeetleServer:
 
     async def send_connection_status(self):
         while self.should_run:
-            toSend = connectionStatus['toSendConnectionStatus']
+            toSend = len(connectionStatusQueue) > 0
             if toSend:
+                myConnectionStatus = connectionStatusQueue.pop(0)
                 message = {
                     "game_state": {
                         f"p{PLAYER_ID}": {
-                            "leg_connected": connectionStatus['isConnected'],
+                            "leg_connected": myConnectionStatus['isConnected'],
                         }
                     },
                     "update": True
@@ -241,7 +243,6 @@ class LegBeetleServer:
                     aio_pika.Message(body=message_body),
                     routing_key=UPDATE_GE_QUEUE,
                 )
-                connectionStatus['toSendConnectionStatus'] = False
                 print(f'[DEBUG] Published connection status to {UPDATE_GE_QUEUE}')
             await asyncio.sleep(0.1)
     

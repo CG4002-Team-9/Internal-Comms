@@ -50,7 +50,6 @@ UPDATE = 'U'
 
 connectionStatus = {
     'isConnected': False,
-    'toSendConnectionStatus': False
 }
 
 updatePacket = {    # ['U', seq, hp, shield, bullets, sound, ..., CRC]
@@ -58,8 +57,10 @@ updatePacket = {    # ['U', seq, hp, shield, bullets, sound, ..., CRC]
     'hp': 90,
     'shield_hp': 10,
     'action_type': 0, # 0: no action, 1: damaged, 2: shield deployed
-    'isUpdateNeeded': False
 }
+
+updatePacketQueue = []
+connectionStatusQueue = []
 
 class MyDelegate(btle.DefaultDelegate):
     def __init__(self):
@@ -135,9 +136,10 @@ class BLEConnection:
     
     def sendUPDATE(self):
         print("[BLE] >> Sending UPDATE...")
-        print(f"[BLE] >> Update Packet: {updatePacket}")
+        myUpdatePacket = updatePacketQueue.pop(0)
+        print(f"[BLE] >> Update Packet: {myUpdatePacket}")
         for i in range(5):
-            packet = bytes(UPDATE, 'utf-8') + bytes([np.uint8(updatePacket['seq']), np.uint8(updatePacket['hp']), np.uint8(updatePacket['shield_hp']), np.uint8(updatePacket['action_type'])]) + bytes([0] * 14)
+            packet = bytes(UPDATE, 'utf-8') + bytes([np.uint8(updatePacket['seq']), np.uint8(myUpdatePacket['hp']), np.uint8(myUpdatePacket['shield_hp']), np.uint8(myUpdatePacket['action_type'])]) + bytes([0] * 14)
             packet = packet + (bytes)([np.uint8(CRC8.checksum(packet))])
             self.beetleSerial.write(packet)
             print(f"[BLE] >> Send UPDATE to the beetle: {updatePacket['seq']}")
@@ -146,7 +148,6 @@ class BLEConnection:
                 if (self.device.delegate.packetType == SYNACK):
                     self.sendSYNACK(0)
                 elif (self.device.delegate.packetType ==  ACK and (self.device.delegate.seqReceived == updatePacket['seq'])):
-                    updatePacket['isUpdateNeeded'] = False
                     updatePacket['seq'] += 1
                     updatePacket['seq'] %= 100
                     print("[BLE] >> Done update player")
@@ -169,7 +170,7 @@ class BLEConnection:
                 print("[BLE] >> Handshake Done.")
                 print("[BLE] _______________________________________________________________ ")
                 connectionStatus['isConnected'] = True
-                connectionStatus['toSendConnectionStatus'] = True
+                connectionStatusQueue.append(connectionStatus.copy())
                 return True
         print("[BLE] >> Handshake Failed.")
         return False
@@ -185,7 +186,7 @@ class BLEConnection:
                     if ((self.device.delegate.invalidPacketCounter >= 5) or self.isHandshakeRequire):
                         self.isHandshakeRequire = not self.performHandShake()
                     else:
-                        if (updatePacket['isUpdateNeeded']):
+                        if (len(updatePacketQueue) > 0):
                             self.sendUPDATE()
                         if (self.device.waitForNotifications(0.1) and self.device.delegate.isRxPacketReady):
                             pass
@@ -194,7 +195,7 @@ class BLEConnection:
             except BTLEDisconnectError:
                 print("[BLE] >> Disconnected.")
                 connectionStatus['isConnected'] = False
-                connectionStatus['toSendConnectionStatus'] = True
+                connectionStatusQueue.append(connectionStatus.copy())
                 await asyncio.sleep(0.1)
 
 class VestBeetleServer:
@@ -217,12 +218,13 @@ class VestBeetleServer:
     
     async def send_connection_status(self):
         while self.should_run:
-            toSend = connectionStatus['toSendConnectionStatus']
+            toSend = len(connectionStatusQueue) > 0
             if toSend:
+                myConnectionStatus = connectionStatusQueue.pop(0)
                 message = {
                     "game_state": {
                         f"p{PLAYER_ID}": {
-                            "vest_connected": connectionStatus['isConnected'],
+                            "vest_connected": myConnectionStatus['isConnected'],
                         }
                     },
                     "update": True
@@ -232,7 +234,6 @@ class VestBeetleServer:
                     aio_pika.Message(body=message_body),
                     routing_key=UPDATE_GE_QUEUE,
                 )
-                connectionStatus['toSendConnectionStatus'] = False
                 print(f'[DEBUG] Published connection status to {UPDATE_GE_QUEUE}')
             await asyncio.sleep(0.1)
     
@@ -266,7 +267,7 @@ class VestBeetleServer:
                         updatePacket['action_type'] = 2
                     elif player_id_for_action != PLAYER_ID and gotHit:
                         updatePacket['action_type'] = 1
-                updatePacket['isUpdateNeeded'] = True
+                updatePacketQueue.append(updatePacket.copy())
             
             except json.JSONDecodeError:
                 print(f'[ERROR] Invalid JSON payload: {payload}')

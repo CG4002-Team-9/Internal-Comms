@@ -56,21 +56,24 @@ UPDATE = 'U'
 
 connectionStatus = {
     'isConnected': False,
-    'toSendConnectionStatus': False
 }
+
+connectionStatusQueue = []
 
 updatePacket = {        # ['U', seq, hp, shield, bullets, sound, ..., CRC]
     'seq': 0,
     'bullets': 6,
     'isReload': False,
-    'isUpdateNeeded': False
 }
+
+updatePacketQueue = []
 
 shootPacket = {
     'seq': 0,
     'hit': 0,
-    'isGunUpdate': False
 }
+
+shootPacketQueue = []
 
 dataPacket = {
     'seq': 0,
@@ -82,6 +85,8 @@ dataPacket = {
     'gz': [],
     'isAllImuReceived': False 
 }
+
+dataPacketQueue = []
 
 class MyDelegate(btle.DefaultDelegate):
     def __init__(self):
@@ -159,9 +164,10 @@ class BLEConnection:
     
     def sendUPDATE(self):
         print("[BLE] >> Sending UPDATE...")
-        print(f"[BLE] >> Update Packet: {updatePacket}")
+        myUpdatePacket = updatePacketQueue.pop(0)
+        print(f"[BLE] >> Update Packet: {myUpdatePacket}")
         for i in range(5):
-            packet = bytes(UPDATE, 'utf-8') + bytes([np.uint8(updatePacket['seq'] )]) + bytes([0] * 2) + bytes([np.uint8(updatePacket['bullets'])]) + bytes([np.uint8(updatePacket['isReload'])]) + bytes([0] * 13)
+            packet = bytes(UPDATE, 'utf-8') + bytes([np.uint8(updatePacket['seq'] )]) + bytes([0] * 2) + bytes([np.uint8(myUpdatePacket['bullets'])]) + bytes([np.uint8(myUpdatePacket['isReload'])]) + bytes([0] * 13)
             packet = packet + (bytes)([np.uint8(CRC8.checksum(packet))])
             self.beetleSerial.write(packet)
             print(f"[BLE] >> Send UPDATE to the beetle: {updatePacket['seq']}")
@@ -170,7 +176,6 @@ class BLEConnection:
                 if (self.device.delegate.packetType == SYNACK):
                     self.sendSYNACK(0)
                 elif (self.device.delegate.packetType ==  ACK and (self.device.delegate.seqReceived == updatePacket['seq'])):
-                    updatePacket['isUpdateNeeded'] = False
                     updatePacket['seq'] += 1
                     updatePacket['seq'] %= 100
                     print("[BLE] >> Done update player")
@@ -197,7 +202,7 @@ class BLEConnection:
                 print("[BLE] >> Handshake Done.")
                 print("[BLE] _______________________________________________________________ ")
                 connectionStatus['isConnected'] = True
-                connectionStatus['toSendConnectionStatus'] = True
+                connectionStatusQueue.append(connectionStatus.copy())
                 return True
         print("[BLE] >> Handshake Failed.")
         return False
@@ -224,10 +229,10 @@ class BLEConnection:
         if (packetType == SHOOT):
             self.sendACK(seqReceived)
             if (shootPacket['seq'] != seqReceived):
-                shootPacket['isGunUpdate']= True
                 shootPacket['seq']  = seqReceived
                 unpackFormat = "<B" + str(16) + "s"
                 shootPacket['hit'], padding = struct.unpack(unpackFormat, payload)
+                shootPacketQueue.append(shootPacket.copy())
         
         elif (packetType == DATA):
             self.appendImuData()
@@ -276,7 +281,7 @@ class BLEConnection:
                     if ((self.device.delegate.invalidPacketCounter >= 5) or self.isHandshakeRequire):
                         self.isHandshakeRequire = not self.performHandShake()
                     else:
-                        if (updatePacket['isUpdateNeeded']):
+                        if (len(updatePacketQueue) > 0):
                             self.sendUPDATE()
                         if (self.device.waitForNotifications(0.1) and self.device.delegate.isRxPacketReady):
                             self.parseRxPacket()
@@ -284,7 +289,7 @@ class BLEConnection:
             except BTLEDisconnectError:
                 print("[BLE] >> Disconnected.")
                 connectionStatus['isConnected'] = False
-                connectionStatus['toSendConnectionStatus'] = True
+                connectionStatusQueue.append(connectionStatus.copy())
                 await asyncio.sleep(0.1)
 
 # Placeholder functions for Bluetooth communication
@@ -311,13 +316,13 @@ def get_imu_data():
         return None
 
 def get_gun_action():
-    action_occurred = shootPacket['isGunUpdate']
+    action_occurred = len(shootPacketQueue) > 0
     if action_occurred:
-        shootPacket['isGunUpdate'] = False
+        myShootPacket = shootPacketQueue.pop(0)
         return {
             'action': True,
             'action_type': 'gun',
-            'hit': shootPacket['hit']
+            'hit': myShootPacket['hit']
         }
     else:
         return None
@@ -382,12 +387,13 @@ class GloveBeetleServer:
 
     async def send_connection_status(self):
         while self.should_run:
-            toSend = connectionStatus['toSendConnectionStatus']
+            toSend = len(connectionStatusQueue) > 0
             if toSend:
+                myConnectionStatus = connectionStatusQueue.pop(0)
                 message = {
                     "game_state": {
                         f"p{PLAYER_ID}": {
-                        "glove_connected": connectionStatus['isConnected'],
+                        "glove_connected": myConnectionStatus['isConnected'],
                         }
                     },
                     "update": True
@@ -397,7 +403,6 @@ class GloveBeetleServer:
                     aio_pika.Message(body=message_body),
                     routing_key=UPDATE_GE_QUEUE,
                 )
-                connectionStatus['toSendConnectionStatus'] = False
             await asyncio.sleep(0.1)
     
     async def process_mqtt_messages(self, mqtt_client):
@@ -416,12 +421,13 @@ class GloveBeetleServer:
                 player_key = f'p{PLAYER_ID}'
                 bullets = game_state.get(player_key).get('bullets', None)
                 updatePacket['bullets'] = bullets
-                updatePacket['isUpdateNeeded'] = True
                 if action is not None and player_id_for_action == PLAYER_ID and action == 'reload':
                     updatePacket['isReload'] = True
                     print(f'[DEBUG] Player {PLAYER_ID} is reloading')
                 else:
                     updatePacket['isReload'] = False
+                
+                updatePacketQueue.append(updatePacket.copy())
                 
             except json.JSONDecodeError:
                 print(f'[ERROR] Invalid JSON payload: {payload}')
