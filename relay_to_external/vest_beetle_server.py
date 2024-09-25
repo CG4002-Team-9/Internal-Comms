@@ -31,7 +31,7 @@ UPDATE_GE_QUEUE = os.getenv('UPDATE_GE_QUEUE', 'update_ge_queue')
 MQTT_TOPIC_UPDATE_EVERYONE = os.getenv('MQTT_TOPIC_UPDATE_EVERYONE', 'update_everyone')
 
 # Player ID this server is handling
-PLAYER_ID = int(os.getenv('PLAYER_ID', '1'))
+PLAYER_ID = int(os.getenv('PLAYER_ID', '2'))
 print(f'[DEBUG] Player ID: {PLAYER_ID}')
 
 # BLE
@@ -40,6 +40,7 @@ print(f'[DEBUG] MAC Address: {MAC_ADDR}')
 SERVICE_UUID = "0000dfb0-0000-1000-8000-00805f9b34fb"
 CHAR_UUID = "0000dfb1-0000-1000-8000-00805f9b34fb"
 ACK_TIMEOUT = 0.5
+HANDSHAKE_TIMEOUT = 2
 CRC8 = Calculator(Crc8.CCITT)
 
 # Packet Types
@@ -161,7 +162,7 @@ class BLEConnection:
     def performHandShake(self):
         print("[BLE] >> Performing Handshake...")
         self.sendSYN(0)
-        if (self.device.waitForNotifications(ACK_TIMEOUT) and self.device.delegate.isRxPacketReady):
+        if (self.device.waitForNotifications(HANDSHAKE_TIMEOUT) and self.device.delegate.isRxPacketReady):
             if (self.device.delegate.packetType ==  SYNACK):
                 self.sendSYNACK(0)
                 self.isHandshakeRequire = False
@@ -184,6 +185,7 @@ class BLEConnection:
                 while True:
                     self.device.delegate.isRxPacketReady = False
                     if ((self.device.delegate.invalidPacketCounter >= 5) or self.isHandshakeRequire):
+                        print(f"[BLE] >> Invalid Packet Counter Exceeded: {self.device.delegate.invalidPacketCounter}")
                         self.isHandshakeRequire = not self.performHandShake()
                     else:
                         if (len(updatePacketQueue) > 0):
@@ -306,7 +308,7 @@ class VestBeetleServer:
             
 
 async def main():
-    await asyncio.gather(ble1.run(), vest_beetle_server.run() )
+    await asyncio.gather(vest_beetle_server.run(),ble1.run())
 
 if __name__ == '__main__':
     vest_beetle_server = VestBeetleServer()

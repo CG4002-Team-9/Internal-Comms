@@ -35,6 +35,7 @@ MAC_ADDR = os.getenv(f'LEG_P{PLAYER_ID}')
 SERVICE_UUID = "0000dfb0-0000-1000-8000-00805f9b34fb"
 CHAR_UUID = "0000dfb1-0000-1000-8000-00805f9b34fb"
 ACK_TIMEOUT = 0.5
+HANDSHAKE_TIMEOUT = 2
 CRC8 = Calculator(Crc8.CCITT)
 
 # Packet Types
@@ -131,7 +132,7 @@ class BLEConnection:
     def performHandShake(self):
         print("[BLE] >> Performing Handshake...")
         self.sendSYN(kickPacket['seq'] + 1)
-        if (self.device.waitForNotifications(ACK_TIMEOUT) and self.device.delegate.isRxPacketReady):
+        if (self.device.waitForNotifications(HANDSHAKE_TIMEOUT) and self.device.delegate.isRxPacketReady):
             if (self.device.delegate.packetType ==  SYNACK):
                 self.sendSYNACK(0)
                 self.isHandshakeRequire = False
