@@ -42,6 +42,7 @@ CHAR_UUID = "0000dfb1-0000-1000-8000-00805f9b34fb"
 ACK_TIMEOUT = 0.5
 HANDSHAKE_TIMEOUT = 2
 CRC8 = Calculator(Crc8.CCITT)
+PACKET_SIZE = 15
 
 # Packet Types
 SYN = 'S'
@@ -77,15 +78,15 @@ class MyDelegate(btle.DefaultDelegate):
         self.isRxPacketReady = False
         self.rxPacketBuffer += data
 
-        if (len(self.rxPacketBuffer) >= 20):
-            self.payload, crcReceived = struct.unpack("<19sB", self.rxPacketBuffer[:20])
+        if (len(self.rxPacketBuffer) >= PACKET_SIZE):
+            self.payload, crcReceived = struct.unpack(f"<{PACKET_SIZE - 1}sB", self.rxPacketBuffer[:PACKET_SIZE])
             if (CRC8.verify(self.payload, crcReceived)):
                 self.invalidPacketCounter = 0
-                self.packetType, self.seqReceived, self.payload = struct.unpack("<cB17s", self.payload)
+                self.packetType, self.seqReceived, self.payload = struct.unpack(f"<cB{PACKET_SIZE - 3}s", self.payload)
                 self.packetType = chr(self.packetType[0])
                 self.isRxPacketReady = True
                 print(f"[BLE]  Received: {self.packetType} Seq: {self.seqReceived}")
-                self.rxPacketBuffer = self.rxPacketBuffer[20:]
+                self.rxPacketBuffer = self.rxPacketBuffer[PACKET_SIZE:]
             else:
                 print("[BLE]  Checksum failed.")
                 self.invalidPacketCounter += 1
@@ -119,13 +120,13 @@ class BLEConnection:
 
     def sendSYN(self, seq):
         print(f"[BLE] >> Send SYN: {seq}")
-        packet = bytes(SYN, 'utf-8') + bytes([np.uint8(seq)]) + bytes([0] * 17)
+        packet = bytes(SYN, 'utf-8') + bytes([np.uint8(seq)]) + bytes([0] * (PACKET_SIZE - 3))
         packet = packet + (bytes)([np.uint8(CRC8.checksum(packet))])
         self.beetleSerial.write(packet)
         
     def sendSYNACK(self, seq):
         print(f"[BLE] >> Send SYNACK: {seq}")
-        packet = bytes(SYNACK, 'utf-8') + bytes([np.uint8(seq)]) + bytes([0] * 17)
+        packet = bytes(SYNACK, 'utf-8') + bytes([np.uint8(seq)]) + bytes([0] * (PACKET_SIZE - 3))
         packet = packet + (bytes)([np.uint8(CRC8.checksum(packet))])
         self.beetleSerial.write(packet)
 
@@ -140,7 +141,7 @@ class BLEConnection:
         myUpdatePacket = updatePacketQueue.pop(0)
         print(f"[BLE] >> Update Packet: {myUpdatePacket}")
         for i in range(5):
-            packet = bytes(UPDATE, 'utf-8') + bytes([np.uint8(updatePacket['seq']), np.uint8(myUpdatePacket['hp']), np.uint8(myUpdatePacket['shield_hp']), np.uint8(myUpdatePacket['action_type'])]) + bytes([0] * 14)
+            packet = bytes(UPDATE, 'utf-8') + bytes([np.uint8(updatePacket['seq']), np.uint8(myUpdatePacket['hp']), np.uint8(myUpdatePacket['shield_hp']), np.uint8(myUpdatePacket['action_type'])]) + bytes([0] * {PACKET_SIZE - 6})
             packet = packet + (bytes)([np.uint8(CRC8.checksum(packet))])
             self.beetleSerial.write(packet)
             print(f"[BLE] >> Send UPDATE to the beetle: {updatePacket['seq']}")

@@ -46,6 +46,7 @@ IMU_TIMEOUT = 0.5
 ACK_TIMEOUT = 0.5
 HANDSHAKE_TIMEOUT = 2
 CRC8 = Calculator(Crc8.CCITT)
+PACKET_SIZE = 15
 
 # Packet Types
 SYN = 'S'
@@ -103,15 +104,15 @@ class MyDelegate(btle.DefaultDelegate):
         self.isRxPacketReady = False
         self.rxPacketBuffer += data
 
-        if (len(self.rxPacketBuffer) >= 20):
-            self.payload, crcReceived = struct.unpack("<19sB", self.rxPacketBuffer[:20])
+        if (len(self.rxPacketBuffer) >= PACKET_SIZE):
+            self.payload, crcReceived = struct.unpack(f"<{PACKET_SIZE - 1}sB", self.rxPacketBuffer[:PACKET_SIZE])
             if (CRC8.verify(self.payload, crcReceived)):
                 self.invalidPacketCounter = 0
-                self.packetType, self.seqReceived, self.payload = struct.unpack("<cB17s", self.payload)
+                self.packetType, self.seqReceived, self.payload = struct.unpack(f"<cB{PACKET_SIZE - 3}s", self.payload)
                 self.packetType = chr(self.packetType[0])
                 self.isRxPacketReady = True
                 print(f"[BLE]  Received: {self.packetType} Seq: {self.seqReceived}")
-                self.rxPacketBuffer = self.rxPacketBuffer[20:]
+                self.rxPacketBuffer = self.rxPacketBuffer[PACKET_SIZE:]
             else:
                 print("[BLE]  Checksum failed.")
                 self.invalidPacketCounter += 1
@@ -146,20 +147,20 @@ class BLEConnection:
 
     def sendSYN(self, seq):
         print(f"[BLE] >> Send SYN: {seq}")
-        packet = bytes(SYN, 'utf-8') + bytes([np.uint8(seq)]) + bytes([0] * 17)
+        packet = bytes(SYN, 'utf-8') + bytes([np.uint8(seq)]) + bytes([0] * (PACKET_SIZE - 3))
         packet = packet + (bytes)([np.uint8(CRC8.checksum(packet))])
         print(packet)
         self.beetleSerial.write(packet)
         
     def sendSYNACK(self, seq):
         print(f"[BLE] >> Send SYNACK: {seq}")
-        packet = bytes(SYNACK, 'utf-8') + bytes([np.uint8(seq)]) + bytes([0] * 17)
+        packet = bytes(SYNACK, 'utf-8') + bytes([np.uint8(seq)]) + bytes([0] * (PACKET_SIZE - 3))
         packet = packet + (bytes)([np.uint8(CRC8.checksum(packet))])
         self.beetleSerial.write(packet)
 
     def sendACK(self, seq):
         print(f"[BLE]    Send ACK: {seq}")
-        packet = bytes(ACK, 'utf-8') + bytes([np.uint8(seq)]) + bytes([0] * 17)
+        packet = bytes(ACK, 'utf-8') + bytes([np.uint8(seq)]) + bytes([0] * (PACKET_SIZE - 3))
         packet = packet + (bytes)([np.uint8(CRC8.checksum(packet))])
         self.beetleSerial.write(packet)
     
@@ -168,7 +169,7 @@ class BLEConnection:
         myUpdatePacket = updatePacketQueue.pop(0)
         print(f"[BLE] >> Update Packet: {myUpdatePacket}")
         for i in range(5):
-            packet = bytes(UPDATE, 'utf-8') + bytes([np.uint8(updatePacket['seq'] )]) + bytes([0] * 2) + bytes([np.uint8(myUpdatePacket['bullets'])]) + bytes([np.uint8(myUpdatePacket['isReload'])]) + bytes([0] * 13)
+            packet = bytes(UPDATE, 'utf-8') + bytes([np.uint8(updatePacket['seq'] )]) + bytes([0] * 2) + bytes([np.uint8(myUpdatePacket['bullets'])]) + bytes([np.uint8(myUpdatePacket['isReload'])]) + bytes([0] * (PACKET_SIZE - 7))
             packet = packet + (bytes)([np.uint8(CRC8.checksum(packet))])
             self.beetleSerial.write(packet)
             print(f"[BLE] >> Send UPDATE to the beetle: {updatePacket['seq']}")
@@ -210,8 +211,8 @@ class BLEConnection:
 
     def appendImuData(self):
         dataPacket['seq']  = self.device.delegate.seqReceived
-        unpackFormat = "<hhhhhh" + str(5) + "s"
-        ax, ay, az, gx, gy, gz, padding = struct.unpack(unpackFormat, self.device.delegate.payload)
+        unpackFormat = "<hhhhhh"
+        ax, ay, az, gx, gy, gz = struct.unpack(unpackFormat, self.device.delegate.payload)
         while (dataPacket['seq'] >= self.imuSeq):
             dataPacket['ax'].append(ax)
             dataPacket['ay'].append(ay)
@@ -231,7 +232,7 @@ class BLEConnection:
             self.sendACK(seqReceived)
             if (shootPacket['seq'] != seqReceived):
                 shootPacket['seq']  = seqReceived
-                unpackFormat = "<B" + str(16) + "s"
+                unpackFormat = "<B" + str(PACKET_SIZE - 4) + "s"
                 shootPacket['hit'], padding = struct.unpack(unpackFormat, payload)
                 shootPacketQueue.append(shootPacket.copy())
         
