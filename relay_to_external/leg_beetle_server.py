@@ -141,8 +141,9 @@ class BLEConnection:
                     self.device.delegate.invalidPacketCounter = 0
                 print("[BLE] >> Handshake Done.")
                 print("[BLE] _______________________________________________________________ ")
-                connectionStatus['isConnected'] = True
-                connectionStatusQueue.append(connectionStatus.copy())
+                if (not connectionStatus['isConnected']):
+                    connectionStatus['isConnected'] = True
+                    connectionStatusQueue.append(connectionStatus.copy())
                 return True
         print("[BLE] >> Handshake Failed.")
         return False
@@ -186,8 +187,9 @@ class BLEConnection:
                         await asyncio.sleep(0.1)
             except BTLEDisconnectError:
                 print("[BLE] >> Disconnected.")
-                connectionStatus['isConnected'] = False
-                connectionStatusQueue.append(connectionStatus.copy())
+                if (connectionStatus['isConnected']):
+                    connectionStatus['isConnected'] = False
+                    connectionStatusQueue.append(connectionStatus.copy())
                 await asyncio.sleep(0.1)
                 
 # Placeholder function for Bluetooth communication

@@ -203,8 +203,9 @@ class BLEConnection:
                     self.device.delegate.invalidPacketCounter = 0
                 print("[BLE] >> Handshake Done.")
                 print("[BLE] _______________________________________________________________ ")
-                connectionStatus['isConnected'] = True
-                connectionStatusQueue.append(connectionStatus.copy())
+                if (not connectionStatus['isConnected']):
+                    connectionStatus['isConnected'] = True
+                    connectionStatusQueue.append(connectionStatus.copy())
                 return True
         print("[BLE] >> Handshake Failed.")
         return False
@@ -290,8 +291,9 @@ class BLEConnection:
                     await asyncio.sleep(0.1)    
             except BTLEDisconnectError:
                 print("[BLE] >> Disconnected.")
-                connectionStatus['isConnected'] = False
-                connectionStatusQueue.append(connectionStatus.copy())
+                if (connectionStatus['isConnected']):
+                    connectionStatus['isConnected'] = False
+                    connectionStatusQueue.append(connectionStatus.copy())
                 await asyncio.sleep(0.1)
 
 # Placeholder functions for Bluetooth communication
@@ -422,14 +424,16 @@ class GloveBeetleServer:
                 player_id_for_action = data.get('player_id', None)
                 player_key = f'p{PLAYER_ID}'
                 bullets = game_state.get(player_key).get('bullets', None)
-                updatePacket['bullets'] = bullets
-                if action is not None and player_id_for_action == PLAYER_ID and action == 'reload':
-                    updatePacket['isReload'] = True
-                    print(f'[DEBUG] Player {PLAYER_ID} is reloading')
-                else:
-                    updatePacket['isReload'] = False
                 
-                updatePacketQueue.append(updatePacket.copy())
+                if bullets is not None and bullets != updatePacket['bullets']:
+                    updatePacket['bullets'] = bullets
+                    if action is not None and player_id_for_action == PLAYER_ID and action == 'reload':
+                        updatePacket['isReload'] = True
+                        print(f'[DEBUG] Player {PLAYER_ID} is reloading')
+                    else:
+                        updatePacket['isReload'] = False
+                    
+                    updatePacketQueue.append(updatePacket.copy())
                 
             except json.JSONDecodeError:
                 print(f'[ERROR] Invalid JSON payload: {payload}')

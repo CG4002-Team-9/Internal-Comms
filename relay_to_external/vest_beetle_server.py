@@ -141,7 +141,7 @@ class BLEConnection:
         myUpdatePacket = updatePacketQueue.pop(0)
         print(f"[BLE] >> Update Packet: {myUpdatePacket}")
         for i in range(5):
-            packet = bytes(UPDATE, 'utf-8') + bytes([np.uint8(updatePacket['seq']), np.uint8(myUpdatePacket['hp']), np.uint8(myUpdatePacket['shield_hp']), np.uint8(myUpdatePacket['action_type'])]) + bytes([0] * {PACKET_SIZE - 6})
+            packet = bytes(UPDATE, 'utf-8') + bytes([np.uint8(updatePacket['seq']), np.uint8(myUpdatePacket['hp']), np.uint8(myUpdatePacket['shield_hp']), np.uint8(myUpdatePacket['action_type'])]) + bytes([0] * (PACKET_SIZE - 6))
             packet = packet + (bytes)([np.uint8(CRC8.checksum(packet))])
             self.beetleSerial.write(packet)
             print(f"[BLE] >> Send UPDATE to the beetle: {updatePacket['seq']}")
@@ -171,8 +171,9 @@ class BLEConnection:
                     self.device.delegate.invalidPacketCounter = 0
                 print("[BLE] >> Handshake Done.")
                 print("[BLE] _______________________________________________________________ ")
-                connectionStatus['isConnected'] = True
-                connectionStatusQueue.append(connectionStatus.copy())
+                if (not connectionStatus['isConnected']):
+                    connectionStatus['isConnected'] = True
+                    connectionStatusQueue.append(connectionStatus.copy())
                 return True
         print("[BLE] >> Handshake Failed.")
         return False
@@ -197,8 +198,9 @@ class BLEConnection:
 
             except BTLEDisconnectError:
                 print("[BLE] >> Disconnected.")
-                connectionStatus['isConnected'] = False
-                connectionStatusQueue.append(connectionStatus.copy())
+                if connectionStatus['isConnected']:
+                    connectionStatus['isConnected'] = False
+                    connectionStatusQueue.append(connectionStatus.copy())
                 await asyncio.sleep(0.1)
 
 class VestBeetleServer:
@@ -259,18 +261,19 @@ class VestBeetleServer:
                 hp = game_state.get(player_key, {}).get('hp', None)
                 shield_hp = game_state.get(player_key, {}).get('shield_hp', None)
                 
-                updatePacket['hp'] = hp
-                updatePacket['shield_hp'] = shield_hp
-                gotHit = game_state.get(f'p{player_id_for_action}', {}).get('opponent_hit', False) or game_state.get(f'p{player_id_for_action}', {}).get('opponent_shield_hit', False)
-                
-                if action is None:
-                    updatePacket['action_type'] = 0
-                else:
-                    if player_id_for_action == PLAYER_ID and action == 'shield': 
-                        updatePacket['action_type'] = 2
-                    elif player_id_for_action != PLAYER_ID and gotHit:
-                        updatePacket['action_type'] = 1
-                updatePacketQueue.append(updatePacket.copy())
+                if hp is not None and shield_hp is not None and (hp != updatePacket['hp'] or shield_hp != updatePacket['shield_hp']):
+                    updatePacket['hp'] = hp
+                    updatePacket['shield_hp'] = shield_hp
+                    gotHit = game_state.get(f'p{player_id_for_action}', {}).get('opponent_hit', False) or game_state.get(f'p{player_id_for_action}', {}).get('opponent_shield_hit', False)
+                    
+                    if action is None:
+                        updatePacket['action_type'] = 0
+                    else:
+                        if player_id_for_action == PLAYER_ID and action == 'shield': 
+                            updatePacket['action_type'] = 2
+                        elif player_id_for_action != PLAYER_ID and gotHit:
+                            updatePacket['action_type'] = 1
+                    updatePacketQueue.append(updatePacket.copy())
             
             except json.JSONDecodeError:
                 print(f'[ERROR] Invalid JSON payload: {payload}')
