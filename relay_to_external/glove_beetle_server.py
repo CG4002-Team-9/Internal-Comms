@@ -3,17 +3,14 @@
 import asyncio
 import json
 import os
-import time
 from dotenv import load_dotenv
 import aio_pika
 import aiomqtt
 
-import bluepy.btle as btle
-from bluepy.btle import Peripheral, BTLEDisconnectError
+from bluepy.btle import BTLEDisconnectError
 from crc import Calculator, Crc8
-import time
 import struct
-import numpy as np
+from myBle import BLEConnection
 
 # Load environment variables from .env file
 load_dotenv()
@@ -37,30 +34,27 @@ PLAYER_ID = int(os.getenv('PLAYER_ID', '1'))
 print(f'[DEBUG] Player ID: {PLAYER_ID}')
 
 # BLE
-
 MAC_ADDR = os.getenv(f'GLOVE_P{PLAYER_ID}')
 print(f'[DEBUG] MAC Address: {MAC_ADDR}')
-SERVICE_UUID = "0000dfb0-0000-1000-8000-00805f9b34fb"
-CHAR_UUID = "0000dfb1-0000-1000-8000-00805f9b34fb"
-IMU_TIMEOUT = 0.5
-ACK_TIMEOUT = 0.5
-HANDSHAKE_TIMEOUT = 2
+SERVICE_UUID = os.getenv('SERVICE_UUID')
+CHAR_UUID = os.getenv('CHAR_UUID')
+PACKET_SIZE = int(os.getenv('PACKET_SIZE'))
+IMU_TIMEOUT = float(os.getenv('IMU_TIMEOUT'))
+ACK_TIMEOUT = float(os.getenv('ACK_TIMEOUT'))
+HANDSHAKE_TIMEOUT = float(os.getenv('HANDSHAKE_TIMEOUT'))
 CRC8 = Calculator(Crc8.CCITT)
-PACKET_SIZE = 15
 
 # Packet Types
-SYN = 'S'
-SYNACK = 'C'
-ACK = 'A'
-SHOOT = 'G'
-DATA = 'D'
-UPDATE = 'U'
+SYN = os.getenv('SYN')
+SYNACK = os.getenv('SYNACK')
+ACK = os.getenv('ACK')
+SHOOT = os.getenv('SHOOT')
+DATA = os.getenv('DATA')
+UPDATE = os.getenv('UPDATE')
 
 connectionStatus = {
     'isConnected': False,
 }
-
-connectionStatusQueue = []
 
 updatePacket = {        # ['U', seq, hp, shield, bullets, sound, ..., CRC]
     'seq': 0,
@@ -68,6 +62,7 @@ updatePacket = {        # ['U', seq, hp, shield, bullets, sound, ..., CRC]
     'isReload': False,
 }
 
+connectionStatusQueue = []
 updatePacketQueue = []
 
 shootPacket = {
@@ -90,126 +85,7 @@ dataPacket = {
 
 dataPacketQueue = []
 
-class MyDelegate(btle.DefaultDelegate):
-    def __init__(self):
-        btle.DefaultDelegate.__init__(self)
-        self.rxPacketBuffer = b''
-        self.payload = b''
-        self.isRxPacketReady = False
-        self.packetType = ''
-        self.seqReceived = 0
-        self.invalidPacketCounter = 0
-
-    def handleNotification(self, cHandle, data):
-        self.isRxPacketReady = False
-        self.rxPacketBuffer += data
-
-        if (len(self.rxPacketBuffer) >= PACKET_SIZE):
-            self.payload, crcReceived = struct.unpack(f"<{PACKET_SIZE - 1}sB", self.rxPacketBuffer[:PACKET_SIZE])
-            if (CRC8.verify(self.payload, crcReceived)):
-                self.invalidPacketCounter = 0
-                self.packetType, self.seqReceived, self.payload = struct.unpack(f"<cB{PACKET_SIZE - 3}s", self.payload)
-                self.packetType = chr(self.packetType[0])
-                self.isRxPacketReady = True
-                print(f"[BLE]  Received: {self.packetType} Seq: {self.seqReceived}")
-                self.rxPacketBuffer = self.rxPacketBuffer[PACKET_SIZE:]
-            else:
-                print("[BLE]  Checksum failed.")
-                self.invalidPacketCounter += 1
-                self.rxPacketBuffer = b''
-            return
-        else:
-            self.invalidPacketCounter += 1
-            print("[BLE]  Fragmented Packet ", len(self.rxPacketBuffer))
-
-class BLEConnection:
-    def __init__(self, macAddr, serviceUUID, charUUID):
-        self.macAddr = macAddr
-        self.serviceUUID = serviceUUID
-        self.charUUID = charUUID
-        self.device = Peripheral()
-        self.beetleSerial = None
-        self.isHandshakeRequire = True
-        self.imuSeq = 0
-
-    def establishConnection(self):
-        print("[BLE] >> Searching and Connecting to the Beetle...")
-        try:
-            self.device.connect(self.macAddr)
-        except BTLEDisconnectError:
-            self.device.disconnect()
-            self.device.connect(self.macAddr)
-
-        self.device.setDelegate(MyDelegate())
-        self.beetleSerial = self.device.getServiceByUUID(self.serviceUUID).getCharacteristics(self.charUUID)[0]
-        print("[BLE] >> Connection is established.")
-        return True
-
-    def sendSYN(self, seq):
-        print(f"[BLE] >> Send SYN: {seq}")
-        packet = bytes(SYN, 'utf-8') + bytes([np.uint8(seq)]) + bytes([0] * (PACKET_SIZE - 3))
-        packet = packet + (bytes)([np.uint8(CRC8.checksum(packet))])
-        print(packet)
-        self.beetleSerial.write(packet)
-        
-    def sendSYNACK(self, seq):
-        print(f"[BLE] >> Send SYNACK: {seq}")
-        packet = bytes(SYNACK, 'utf-8') + bytes([np.uint8(seq)]) + bytes([0] * (PACKET_SIZE - 3))
-        packet = packet + (bytes)([np.uint8(CRC8.checksum(packet))])
-        self.beetleSerial.write(packet)
-
-    def sendACK(self, seq):
-        print(f"[BLE]    Send ACK: {seq}")
-        packet = bytes(ACK, 'utf-8') + bytes([np.uint8(seq)]) + bytes([0] * (PACKET_SIZE - 3))
-        packet = packet + (bytes)([np.uint8(CRC8.checksum(packet))])
-        self.beetleSerial.write(packet)
-    
-    def sendUPDATE(self):
-        print("[BLE] >> Sending UPDATE...")
-        myUpdatePacket = updatePacketQueue.pop(0)
-        print(f"[BLE] >> Update Packet: {myUpdatePacket}")
-        for i in range(5):
-            packet = bytes(UPDATE, 'utf-8') + bytes([np.uint8(updatePacket['seq'] )]) + bytes([0] * 2) + bytes([np.uint8(myUpdatePacket['bullets'])]) + bytes([np.uint8(myUpdatePacket['isReload'])]) + bytes([0] * (PACKET_SIZE - 7))
-            packet = packet + (bytes)([np.uint8(CRC8.checksum(packet))])
-            self.beetleSerial.write(packet)
-            print(f"[BLE] >> Send UPDATE to the beetle: {updatePacket['seq']}")
-
-            if (self.device.waitForNotifications(ACK_TIMEOUT) and self.device.delegate.isRxPacketReady and not self.isHandshakeRequire):
-                if (self.device.delegate.packetType == SYNACK):
-                    self.sendSYNACK(0)
-                elif (self.device.delegate.packetType ==  ACK and (self.device.delegate.seqReceived == updatePacket['seq'])):
-                    updatePacket['seq'] += 1
-                    updatePacket['seq'] %= 100
-                    print("[BLE] >> Done update player")
-                    print("[BLE] _______________________________________________________________ ")
-                    return 
-                # if recevied data instead of ACK, collect the data first
-                elif (self.device.delegate.packetType == DATA):
-                    self.parseRxPacket()
-
-            elif (self.isHandshakeRequire):
-                break
-        # after 5 attempts of sending update
-        self.isHandshakeRequire = True
-
-    def performHandShake(self):
-        print("[BLE] >> Performing Handshake...")
-        self.sendSYN(0)
-        if (self.device.waitForNotifications(HANDSHAKE_TIMEOUT) and self.device.delegate.isRxPacketReady):
-            if (self.device.delegate.packetType ==  SYNACK):
-                self.sendSYNACK(0)
-                self.isHandshakeRequire = False
-                if (self.device.delegate.invalidPacketCounter >= 5):
-                    self.device.delegate.invalidPacketCounter = 0
-                print("[BLE] >> Handshake Done.")
-                print("[BLE] _______________________________________________________________ ")
-                if (not connectionStatus['isConnected']):
-                    connectionStatus['isConnected'] = True
-                    connectionStatusQueue.append(connectionStatus.copy())
-                return True
-        print("[BLE] >> Handshake Failed.")
-        return False
-
+class ExtendedBLEConnection(BLEConnection):
     def appendImuData(self):
         dataPacket['seq']  = self.device.delegate.seqReceived
         unpackFormat = "<hhhhhh"
@@ -276,16 +152,16 @@ class BLEConnection:
     async def run(self):
         while True: # BLE loop
             try: 
-                self = BLEConnection(MAC_ADDR, SERVICE_UUID, CHAR_UUID)
+                self = ExtendedBLEConnection(MAC_ADDR, SERVICE_UUID, CHAR_UUID)
                 self.establishConnection()
                 self.isHandshakeRequire = True
                 while True:
                     self.device.delegate.isRxPacketReady = False
                     if ((self.device.delegate.invalidPacketCounter >= 5) or self.isHandshakeRequire):
-                        self.isHandshakeRequire = not self.performHandShake()
+                        self.isHandshakeRequire = not self.performHandShake(seq=shootPacket['seq'] + 1, connectionStatus=connectionStatus, connectionStatusQueue=connectionStatusQueue)
                     else:
                         if (len(updatePacketQueue) > 0):
-                            self.sendUPDATE()
+                            self.sendUPDATE(updatePacket, myUpdatePacket = updatePacketQueue.pop(0), isGloveUpdate=True)
                         if (self.device.waitForNotifications(0.1) and self.device.delegate.isRxPacketReady):
                             self.parseRxPacket()
                     await asyncio.sleep(0.1)    
@@ -477,8 +353,7 @@ async def main():
 
 if __name__ == '__main__':
     glove_beetle_server = GloveBeetleServer()
-    #mac_addr = f'MAC_ADDR_{PLAYER_ID}'
-    ble1 = BLEConnection(MAC_ADDR, SERVICE_UUID, CHAR_UUID)
+    ble1 = ExtendedBLEConnection(MAC_ADDR, SERVICE_UUID, CHAR_UUID)
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
