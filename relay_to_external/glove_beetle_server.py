@@ -47,6 +47,7 @@ ACK_TIMEOUT = 0.5
 HANDSHAKE_TIMEOUT = 2
 CRC8 = Calculator(Crc8.CCITT)
 PACKET_SIZE = 15
+DATASIZE = 60
 
 # Packet Types
 SYN = 'S'
@@ -79,12 +80,13 @@ shootPacketQueue = []
 
 dataPacket = {
     'seq': 0,
-    'ax': [],
-    'ay': [],
-    'az': [],
-    'gx': [],
-    'gy': [],
-    'gz': [],
+    'ax': [0] * DATASIZE,
+    'ay': [0] * DATASIZE,
+    'az': [0] * DATASIZE,
+    'gx': [0] * DATASIZE,
+    'gy': [0] * DATASIZE,
+    'gz': [0] * DATASIZE,
+    'imuCounter': 0,
     'isAllImuReceived': False 
 }
 
@@ -130,7 +132,6 @@ class BLEConnection:
         self.device = Peripheral()
         self.beetleSerial = None
         self.isHandshakeRequire = True
-        self.imuSeq = 0
 
     def establishConnection(self):
         print("[BLE] >> Searching and Connecting to the Beetle...")
@@ -211,18 +212,17 @@ class BLEConnection:
         return False
 
     def appendImuData(self):
-        dataPacket['seq']  = self.device.delegate.seqReceived
         unpackFormat = "<hhhhhh"
         ax, ay, az, gx, gy, gz = struct.unpack(unpackFormat, self.device.delegate.payload)
-        while (dataPacket['seq'] >= self.imuSeq):
-            dataPacket['ax'].append(ax)
-            dataPacket['ay'].append(ay)
-            dataPacket['az'].append(az)
-            dataPacket['gx'].append(gx)
-            dataPacket['gy'].append(gy)
-            dataPacket['gz'].append(gz)
-            self.imuSeq += 1
-        #print(f"[BLE]    Updated {ax}, {ay}, {az}, {gx}, {gy}, {gz}}")
+        print(f"[BLE]    Received {ax}, {ay}, {az}, {gx}, {gy}, {gz}")
+        dataPacket['imuCounter'] += 1
+        dataPacket['ax'][dataPacket['seq']] = ax
+        dataPacket['ay'][dataPacket['seq']] = ay
+        dataPacket['az'][dataPacket['seq']] = az
+        dataPacket['gx'][dataPacket['seq']] = gx
+        dataPacket['gy'][dataPacket['seq']] = gy
+        dataPacket['gz'][dataPacket['seq']] = gz
+
 
     def parseRxPacket(self):
         packetType = self.device.delegate.packetType
@@ -238,8 +238,10 @@ class BLEConnection:
                 shootPacketQueue.append(shootPacket.copy())
         
         elif (packetType == DATA):
+            if (dataPacket['isAllImuReceived']):
+                return
+            dataPacket['seq']  = self.device.delegate.seqReceived
             self.appendImuData()
-            dataPacket['isAllImuReceived'] = False
 
             # break when received the last packet, or timeout, or received other types of packet that's not DATA
             while (not dataPacket['isAllImuReceived'] and self.device.waitForNotifications(IMU_TIMEOUT)):
@@ -248,19 +250,19 @@ class BLEConnection:
                 if (self.device.delegate.packetType != DATA):
                     break
                 
+                dataPacket['seq']  = self.device.delegate.seqReceived
                 self.appendImuData()
 
-                if (dataPacket['seq'] == 59):
+                if (dataPacket['seq'] == DATASIZE - 1):
                     dataPacket['isAllImuReceived'] = True
 
             # if wait the next data until timeout, append the data
-            if (dataPacket['seq'] != 59):
-                dataPacket['seq'] = 59
-                self.appendImuData()
+            # if (dataPacket['seq'] != 59):
+            #     dataPacket['seq'] = 59
+            #     self.appendImuData()
 
             # all data is ready
             dataPacket['isAllImuReceived'] = True
-            self.imuSeq = 0
             print(f"[BLE] >> All IMU data is received.")
             
         elif (packetType == SYNACK):
@@ -298,26 +300,30 @@ class BLEConnection:
 
 # Placeholder functions for Bluetooth communication
 def get_imu_data():
-    action_occurred = dataPacket['isAllImuReceived']
+    action_occurred = dataPacket['isAllImuReceived'] and dataPacket['imuCounter'] > 30
+    
+    ax = dataPacket['ax'].copy()
+    ay = dataPacket['ay'].copy()
+    az = dataPacket['az'].copy()
+    gx = dataPacket['gx'].copy()
+    gy = dataPacket['gy'].copy()
+    gz = dataPacket['gz'].copy()
+    # Reset all back to 0
+    dataPacket['ax'] = [0] * DATASIZE
+    dataPacket['ay'] = [0] * DATASIZE
+    dataPacket['az'] = [0] * DATASIZE
+    dataPacket['gx'] = [0] * DATASIZE
+    dataPacket['gy'] = [0] * DATASIZE
+    dataPacket['gz'] = [0] * DATASIZE
+    dataPacket['isAllImuReceived'] = False
+    dataPacket['imuCounter'] = 0
+    
     if action_occurred:
-        dataPacket['isAllImuReceived'] = False
-        ax = dataPacket['ax'].copy()
-        ay = dataPacket['ay'].copy()
-        az = dataPacket['az'].copy()
-        gx = dataPacket['gx'].copy()
-        gy = dataPacket['gy'].copy()
-        gz = dataPacket['gz'].copy()
-
-        dataPacket["ax"].clear()
-        dataPacket["ay"].clear()
-        dataPacket["az"].clear()
-        dataPacket["gx"].clear()
-        dataPacket["gy"].clear()
-        dataPacket["gz"].clear()
         print(f"[BLE] >> Relay IMU Data to Server")
         return ax, ay, az, gx, gy, gz
     else:
         return None
+    
 
 def get_gun_action():
     action_occurred = len(shootPacketQueue) > 0
