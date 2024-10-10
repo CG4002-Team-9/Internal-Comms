@@ -170,7 +170,7 @@ class BLEConnection:
         myUpdatePacket = updatePacketQueue.pop(0)
         print(f"[BLE] >> Update Packet: {myUpdatePacket}")
         for i in range(5):
-            packet = bytes(UPDATE, 'utf-8') + bytes([np.uint8(updatePacket['seq'] )]) + bytes([0] * 3) + bytes([np.uint8(myUpdatePacket['bullets'])]) + bytes([np.uint8(myUpdatePacket['isReload'])]) + bytes([0] * (PACKET_SIZE - 6))
+            packet = bytes(UPDATE, 'utf-8') + bytes([np.uint8(updatePacket['seq'] )]) + bytes([0] * 3) + bytes([np.uint8(myUpdatePacket['bullets'])]) + bytes([np.uint8(myUpdatePacket['isReload'])]) + bytes([0] * (PACKET_SIZE - 8))
             packet = packet + (bytes)([np.uint8(CRC8.checksum(packet))])
             self.beetleSerial.write(packet)
             print(f"[BLE] >> Send UPDATE to the beetle: {updatePacket['seq']}")
