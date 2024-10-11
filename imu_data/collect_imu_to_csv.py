@@ -14,7 +14,7 @@ import csv
 # Load environment variables from .env file
 load_dotenv()
 
-NAME_OF_ACTION = "logout"
+NAME_OF_ACTION = "shield"
 
 # Broker configurations
 BROKER = os.getenv('BROKER')
@@ -104,6 +104,13 @@ def saveImuToCSV():
     dataPacket['gz'] = [0] * DATASIZE
     dataPacket['isAllImuReceived'] = False
     dataPacket['imuCounter'] = 0  
+
+def deleteLastRow():
+    filepath = f"{NAME_OF_ACTION}_{PLAYER_ID}.csv"
+    os.system('sed -i "$ d" {0}'.format(filepath))
+
+    print('deleted last row')
+
 
 class MyDelegate(btle.DefaultDelegate):
     def __init__(self):
@@ -246,12 +253,8 @@ class BLEConnection:
         payload = self.device.delegate.payload
 
         if (packetType == SHOOT):
+            deleteLastRow()
             self.sendACK(seqReceived)
-            if (shootPacket['seq'] != seqReceived):
-                shootPacket['seq']  = seqReceived
-                unpackFormat = "<B" + str(PACKET_SIZE - 4) + "s"
-                shootPacket['hit'], padding = struct.unpack(unpackFormat, payload)
-                shootPacketQueue.append(shootPacket.copy())
         
         elif (packetType == DATA):
             dataPacket['seq']  = self.device.delegate.seqReceived
