@@ -1,3 +1,6 @@
 bluepy
 crc
 numpy
+python-dotenv
+aio-pika
+aiomqtt
