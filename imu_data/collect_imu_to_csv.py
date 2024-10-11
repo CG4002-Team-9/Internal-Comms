@@ -251,9 +251,9 @@ class BLEConnection:
                 shootPacketQueue.append(shootPacket.copy())
         
         elif (packetType == DATA):
-            if (dataPacket['isAllImuReceived']):
-                return
             dataPacket['seq']  = self.device.delegate.seqReceived
+            if (dataPacket['seq'] >= 5):
+                return
             self.appendImuData()
 
             # break when received the last packet, or timeout, or received other types of packet that's not DATA
