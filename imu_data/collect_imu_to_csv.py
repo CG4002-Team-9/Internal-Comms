@@ -225,6 +225,9 @@ class BLEConnection:
         return False
 
     def appendImuData(self):
+        if dataPacket['seq'] >= DATASIZE - 1:
+            return
+
         unpackFormat = "<hhhhhh"
         ax, ay, az, gx, gy, gz = struct.unpack(unpackFormat, self.device.delegate.payload)
         print(f"[BLE]    Received {ax}, {ay}, {az}, {gx}, {gy}, {gz}")

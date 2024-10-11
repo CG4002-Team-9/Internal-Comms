@@ -33,7 +33,7 @@ UPDATE_GE_QUEUE = os.getenv('UPDATE_GE_QUEUE', 'update_ge_queue')
 MQTT_TOPIC_UPDATE_EVERYONE = os.getenv('MQTT_TOPIC_UPDATE_EVERYONE', 'update_everyone')
 
 # Player ID this server is handling
-PLAYER_ID = int(os.getenv('PLAYER_ID', '1'))
+PLAYER_ID = int(os.getenv('PLAYER_ID', '2'))
 print(f'[DEBUG] Player ID: {PLAYER_ID}')
 
 # BLE
@@ -212,6 +212,8 @@ class BLEConnection:
         return False
 
     def appendImuData(self):
+        if dataPacket['seq'] >= 60:
+            return
         unpackFormat = "<hhhhhh"
         ax, ay, az, gx, gy, gz = struct.unpack(unpackFormat, self.device.delegate.payload)
         print(f"[BLE]    Received {ax}, {ay}, {az}, {gx}, {gy}, {gz}")
@@ -253,7 +255,7 @@ class BLEConnection:
                 dataPacket['seq']  = self.device.delegate.seqReceived
                 self.appendImuData()
 
-                if (dataPacket['seq'] == DATASIZE - 1):
+                if (dataPacket['seq'] >= DATASIZE - 1):
                     dataPacket['isAllImuReceived'] = True
 
             # if wait the next data until timeout, append the data
@@ -288,9 +290,11 @@ class BLEConnection:
                     else:
                         if (len(updatePacketQueue) > 0):
                             self.sendUPDATE()
+
                         if (self.device.waitForNotifications(0.1) and self.device.delegate.isRxPacketReady):
                             self.parseRxPacket()
-                    await asyncio.sleep(0.1)    
+                    await asyncio.sleep(0.1)
+
             except BTLEDisconnectError:
                 print("[BLE] >> Disconnected.")
                 if (connectionStatus['isConnected']):
