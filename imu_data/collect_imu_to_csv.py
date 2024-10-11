@@ -14,7 +14,7 @@ import csv
 # Load environment variables from .env file
 load_dotenv()
 
-NAME_OF_ACTION = "shield"
+NAME_OF_ACTION = "reload"
 
 # Broker configurations
 BROKER = os.getenv('BROKER')
