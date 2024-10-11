@@ -8,7 +8,7 @@ import aio_pika
 
 from bluepy.btle import BTLEDisconnectError
 from crc import Calculator, Crc8
-from myBle import BLEConnection
+import myBle
 
 # Load environment variables from .env file
 load_dotenv()
@@ -28,18 +28,6 @@ print(f'[DEBUG] Player ID: {PLAYER_ID}')
 
 # BLE
 MAC_ADDR = os.getenv(f'LEG_P{PLAYER_ID}')
-SERVICE_UUID = os.getenv('SERVICE_UUID')
-CHAR_UUID = os.getenv('CHAR_UUID')
-PACKET_SIZE = int(os.getenv('PACKET_SIZE'))
-ACK_TIMEOUT = float(os.getenv('ACK_TIMEOUT'))
-HANDSHAKE_TIMEOUT = float(os.getenv('HANDSHAKE_TIMEOUT'))
-CRC8 = Calculator(Crc8.CCITT)
-
-# Packet Types
-SYN = os.getenv('SYN')
-SYNACK = os.getenv('SYNACK')
-ACK = os.getenv('ACK')
-KICK = os.getenv('KICK')
 
 connectionStatus = {
     'isConnected': False,
@@ -52,13 +40,13 @@ kickPacket = {
 }
 kickPacketQueue = []
 
-class ExtendedBLEConnection(BLEConnection):
+class ExtendedBLEConnection(myBle.BLEConnection):
     def parseRxPacket(self):
         packetType = self.device.delegate.packetType
         seqReceived = self.device.delegate.seqReceived
         payload = self.device.delegate.payload
             
-        if (packetType == KICK):
+        if (packetType == myBle.KICK):
             self.sendACK(seqReceived)
             if (kickPacket['seq'] != seqReceived):
                 kickPacket['seq']  = seqReceived
@@ -66,7 +54,7 @@ class ExtendedBLEConnection(BLEConnection):
                 kickPacketQueue.append(kickPacket.copy())
                 print("[BLE] _______________________________________________________________ ")
         
-        elif (packetType == SYNACK):
+        elif (packetType == myBle.SYNACK):
             self.sendSYNACK(0)
         
         else:
@@ -78,7 +66,7 @@ class ExtendedBLEConnection(BLEConnection):
     async def run(self):
         while True: # BLE loop
             try: 
-                self = ExtendedBLEConnection(MAC_ADDR, SERVICE_UUID, CHAR_UUID)
+                self = ExtendedBLEConnection(MAC_ADDR, myBle.SERVICE_UUID, myBle.CHAR_UUID)
                 self.establishConnection()
                 self.isHandshakeRequire = True
                 while True:
@@ -175,7 +163,7 @@ async def main():
 
 if __name__ == '__main__':
     leg_beetle_server = LegBeetleServer()
-    ble1 = ExtendedBLEConnection(MAC_ADDR, SERVICE_UUID, CHAR_UUID)
+    ble1 = ExtendedBLEConnection(MAC_ADDR, myBle.SERVICE_UUID, myBle.CHAR_UUID)
     try:
         asyncio.run(main())
     except KeyboardInterrupt:

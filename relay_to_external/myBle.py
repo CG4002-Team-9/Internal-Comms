@@ -67,7 +67,6 @@ class BLEConnection:
         self.device = Peripheral()
         self.beetleSerial = None
         self.isHandshakeRequire = True
-        self.imuSeq = 0
 
     def establishConnection(self):
         print("[BLE] >> Searching and Connecting to the Beetle...")
@@ -125,9 +124,10 @@ class BLEConnection:
         if (isVestUpdate):
             packet = bytes(UPDATE, 'utf-8') + bytes([np.uint8(updatePacket['seq']), np.uint8(myUpdatePacket['hp']), np.uint8(myUpdatePacket['shield_hp']), np.uint8(myUpdatePacket['action_type'])]) + bytes([0] * (PACKET_SIZE - 6))
         elif (isGloveUpdate):
-            packet = bytes(UPDATE, 'utf-8') + bytes([np.uint8(updatePacket['seq'])]) + bytes([0] * 2) + bytes([np.uint8(myUpdatePacket['bullets']), np.uint8(myUpdatePacket['isReload'])]) + bytes([0] * (PACKET_SIZE - 7))
+            packet = bytes(UPDATE, 'utf-8') + bytes([np.uint8(updatePacket['seq'])]) + bytes([0] * 3) + bytes([np.uint8(myUpdatePacket['bullets']), np.uint8(myUpdatePacket['isReload'])]) + bytes([0] * (PACKET_SIZE - 8))
         else:
             print("[BLE] >> UPDATE Failed.")
+            
         packet = packet + (bytes)([np.uint8(CRC8.checksum(packet))])
         
         for i in range(5):
@@ -148,6 +148,13 @@ class BLEConnection:
                     self.parseRxPacket()
             elif (self.isHandshakeRequire):
                 break
+
         # after 5 attempts of sending update
         print("[BLE] >> Update Failed.")
         self.isHandshakeRequire = True
+    
+    def parseRxPacket(self):
+        pass
+
+    def run(self):
+        pass

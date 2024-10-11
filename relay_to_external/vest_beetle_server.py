@@ -9,7 +9,7 @@ import aiomqtt
 
 from bluepy.btle import BTLEDisconnectError
 from crc import Calculator, Crc8
-from myBle import BLEConnection
+import myBle
 
 # Load environment variables from .env file
 load_dotenv()
@@ -34,24 +34,12 @@ print(f'[DEBUG] Player ID: {PLAYER_ID}')
 # BLE
 MAC_ADDR = os.getenv(f'VEST_P{PLAYER_ID}')
 print(f'[DEBUG] MAC Address: {MAC_ADDR}')
-SERVICE_UUID = os.getenv('SERVICE_UUID')
-CHAR_UUID = os.getenv('CHAR_UUID')
-PACKET_SIZE = int(os.getenv('PACKET_SIZE'))
-ACK_TIMEOUT = float(os.getenv('ACK_TIMEOUT'))
-HANDSHAKE_TIMEOUT = float(os.getenv('HANDSHAKE_TIMEOUT'))
-CRC8 = Calculator(Crc8.CCITT)
-
-# Packet Types
-SYN = os.getenv('SYN')
-SYNACK = os.getenv('SYNACK')
-ACK = os.getenv('ACK')
-UPDATE = os.getenv('UPDATE')
 
 connectionStatus = {
     'isConnected': False,
 }
 
-updatePacket = {    # ['U', seq, hp, shield, bullets, sound, ..., CRC]
+updatePacket = {
     'seq': 0,
     'hp': 90,
     'shield_hp': 10,
@@ -61,11 +49,11 @@ updatePacket = {    # ['U', seq, hp, shield, bullets, sound, ..., CRC]
 connectionStatusQueue = []
 updatePacketQueue = []
 
-class ExtendedBLEConnection(BLEConnection):
+class ExtendedBLEConnection(myBle.BLEConnection):
     async def run(self):
         while True: # BLE loop
             try: 
-                self = ExtendedBLEConnection(MAC_ADDR, SERVICE_UUID, CHAR_UUID)
+                self = ExtendedBLEConnection(MAC_ADDR, myBle.SERVICE_UUID, myBle.CHAR_UUID)
                 self.establishConnection()
                 self.isHandshakeRequire = True
                 while True:
@@ -200,7 +188,7 @@ async def main():
 
 if __name__ == '__main__':
     vest_beetle_server = VestBeetleServer()
-    ble1 = ExtendedBLEConnection(MAC_ADDR, SERVICE_UUID, CHAR_UUID)
+    ble1 = ExtendedBLEConnection(MAC_ADDR, myBle.SERVICE_UUID, myBle.CHAR_UUID)
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
