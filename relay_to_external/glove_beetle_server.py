@@ -284,7 +284,9 @@ class GloveBeetleServer:
                 player_key = f'p{PLAYER_ID}'
                 bullets = game_state.get(player_key).get('bullets', None)
                 
-                if bullets is not None and bullets != updatePacket['bullets']:
+                # if bullets is not None and bullets != updatePacket['bullets']:
+                
+                if bullets is not None:
                     updatePacket['bullets'] = bullets
                     if action is not None and player_id_for_action == PLAYER_ID and action == 'reload':
                         updatePacket['isReload'] = True

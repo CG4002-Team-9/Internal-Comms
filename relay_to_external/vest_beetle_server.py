@@ -132,7 +132,9 @@ class VestBeetleServer:
                 hp = game_state.get(player_key, {}).get('hp', None)
                 shield_hp = game_state.get(player_key, {}).get('shield_hp', None)
                 
-                if hp is not None and shield_hp is not None and (hp != updatePacket['hp'] or shield_hp != updatePacket['shield_hp']):
+                # if hp is not None and shield_hp is not None and (hp != updatePacket['hp'] or shield_hp != updatePacket['shield_hp']):
+                
+                if hp is not None and shield_hp is not None:
                     updatePacket['hp'] = hp
                     updatePacket['shield_hp'] = shield_hp
                     gotHit = game_state.get(f'p{player_id_for_action}', {}).get('opponent_hit', False) or game_state.get(f'p{player_id_for_action}', {}).get('opponent_shield_hit', False)
