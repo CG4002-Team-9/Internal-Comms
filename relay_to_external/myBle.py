@@ -4,28 +4,22 @@ from crc import Calculator, Crc8
 import struct
 import numpy as np
 
-import os
-from dotenv import load_dotenv
-
-# Load environment variables from .env file
-load_dotenv()
-
-SERVICE_UUID = os.getenv('SERVICE_UUID')
-CHAR_UUID = os.getenv('CHAR_UUID')
-PACKET_SIZE = int(os.getenv('PACKET_SIZE'))
-IMU_TIMEOUT = float(os.getenv('IMU_TIMEOUT'))
-ACK_TIMEOUT = float(os.getenv('ACK_TIMEOUT'))
-HANDSHAKE_TIMEOUT = float(os.getenv('HANDSHAKE_TIMEOUT'))
+SERVICE_UUID = "0000dfb0-0000-1000-8000-00805f9b34fb"
+CHAR_UUID = "0000dfb1-0000-1000-8000-00805f9b34fb"
+PACKET_SIZE = 15
+IMU_TIMEOUT = 0.5
+ACK_TIMEOUT = 0.5
+HANDSHAKE_TIMEOUT = 2
 CRC8 = Calculator(Crc8.CCITT)
 
-# Packet Types
-SYN = os.getenv('SYN')
-SYNACK = os.getenv('SYNACK')
-ACK = os.getenv('ACK')
-SHOOT = os.getenv('SHOOT')
-DATA = os.getenv('DATA')
-UPDATE = os.getenv('UPDATE')
-KICK = os.getenv('KICK')
+# packet types
+SYN = 'S'
+SYNACK = 'C'
+ACK = 'A'
+SHOOT = 'G'
+DATA = 'D'
+UPDATE = 'U'
+KICK = 'K'
 
 class MyDelegate(btle.DefaultDelegate):
     def __init__(self):
