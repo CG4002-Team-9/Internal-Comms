@@ -1,22 +1,53 @@
+#!/usr/bin/env python
+
+import os
+from dotenv import load_dotenv
+
 import bluepy.btle as btle
 from bluepy.btle import Peripheral, BTLEDisconnectError
 from crc import Calculator, Crc8
-import time
 import struct
 import numpy as np
-import random
+
 import csv
+
 import tensorflow as tf
 from sklearn.preprocessing import MinMaxScaler
 import pickle
 from sklearn.preprocessing import LabelEncoder
 
-MAC_ADDR = "F4:B8:5E:42:73:2A"# glove 1 #"F4:B8:5E:42:61:55"  # "F4:B8:5E:42:67:1B"  # hand, 2
+# Load environment variables from .env file
+load_dotenv()
+
+# Broker configurations
+BROKER = os.getenv('BROKER')
+BROKERUSER = os.getenv('BROKERUSER')
+PASSWORD = os.getenv('PASSWORD')
+RABBITMQ_PORT = int(os.getenv('RABBITMQ_PORT', '5672'))
+MQTT_PORT = int(os.getenv('MQTT_PORT', '1883'))
+
+# RabbitMQ queues
+AI_QUEUE = os.getenv('AI_QUEUE', 'ai_queue')
+UPDATE_GE_QUEUE = os.getenv('UPDATE_GE_QUEUE', 'update_ge_queue')
+
+# MQTT topic
+MQTT_TOPIC_UPDATE_EVERYONE = os.getenv('MQTT_TOPIC_UPDATE_EVERYONE', 'update_everyone')
+
+# Player ID this server is handling
+PLAYER_ID = int(os.getenv('PLAYER_ID', '1'))
+print(f'[DEBUG] Player ID: {PLAYER_ID}')
+
+# BLE
+MAC_ADDR = os.getenv(f'GLOVE_P{PLAYER_ID}')
+print(f'[DEBUG] MAC Address: {MAC_ADDR}')
 SERVICE_UUID = "0000dfb0-0000-1000-8000-00805f9b34fb"
 CHAR_UUID = "0000dfb1-0000-1000-8000-00805f9b34fb"
 IMU_TIMEOUT = 0.5
 ACK_TIMEOUT = 0.5
+HANDSHAKE_TIMEOUT = 2
 CRC8 = Calculator(Crc8.CCITT)
+PACKET_SIZE = 15
+DATASIZE = 60
 
 # Packet Types
 SYN = 'S'
@@ -26,39 +57,52 @@ SHOOT = 'G'
 DATA = 'D'
 UPDATE = 'U'
 
-updatePacket = {
-    'seq': 0,
-    'bullet': 6
+connectionStatus = {
+    'isConnected': False,
 }
+
+connectionStatusQueue = []
+
+updatePacket = {        # ['U', seq, hp, shield, bullets, sound, ..., CRC]
+    'seq': 0,
+    'bullets': 6,
+    'isReload': False,
+}
+
+updatePacketQueue = []
 
 shootPacket = {
     'seq': 0,
     'hit': 0,
-    'bullet': 6
 }
+
+shootPacketQueue = []
 
 dataPacket = {
     'seq': 0,
-    'ax': [],
-    'ay': [],
-    'az': [],
-    'gx': [],
-    'gy': [],
-    'gz': [] 
+    'ax': [0] * DATASIZE,
+    'ay': [0] * DATASIZE,
+    'az': [0] * DATASIZE,
+    'gx': [0] * DATASIZE,
+    'gy': [0] * DATASIZE,
+    'gz': [0] * DATASIZE,
+    'imuCounter': 0,
+    'isAllImuReceived': False 
 }
 
-# Load the trained model
-model = tf.keras.models.load_model('gesture_model_real.h5')
+dataPacketQueue = []
 
-# Load the saved LabelEncoder
-with open('label_encoder.pkl', 'rb') as file:
-    label_encoder = pickle.load(file)
+model = tf.keras.models.load_model('gesture_model_real.h5')
 
 # Define the scaler to scale between -1 and 1 (to maintain negative values)
 scaler = MinMaxScaler(feature_range=(-1, 1))
 
 # Fit the scaler with the 16-bit signed integer range (this only needs to be done once)
 scaler.fit(np.array([-2**15, 2**15 - 1]).reshape(-1, 1))
+
+
+with open('label_encoder.pkl', 'rb') as file:
+    label_encoder = pickle.load(file)
 
 # Function to pad or truncate the data to exactly 60 samples
 def pad_or_truncate(array, target_length=60):
@@ -69,8 +113,66 @@ def pad_or_truncate(array, target_length=60):
     else:
         return array
 
-# Replace get_imu_data with the prediction workflow
-def get_imu_data():
+
+import tkinter as tk
+import threading
+import time
+
+# Global variable to set the size of the overlay
+OVERLAY_WIDTH = 700
+OVERLAY_HEIGHT = 200
+BORDER_RADIUS = 100  # Adjust to make the corners more or less rounded
+TRANSPARENCY_LEVEL = 0  # Adjust for semi-transparency
+
+def round_rectangle(canvas, x1, y1, x2, y2, radius=25, **kwargs):
+    """Draw a rounded rectangle on the given canvas."""
+    points = [
+        (x1 + radius, y1),
+        (x2 - radius, y1),
+        (x2, y1),
+        (x2, y1 + radius),
+        (x2, y2 - radius),
+        (x2, y2),
+        (x2 - radius, y2),
+        (x1 + radius, y2),
+        (x1, y2),
+        (x1, y2 - radius),
+        (x1, y1 + radius),
+        (x1, y1)
+    ]
+    
+    return canvas.create_polygon(points, smooth=True, **kwargs)
+
+def show_overlay(predicted_action, duration=2):
+    """Display a temporary, pill-shaped overlay showing the predicted action with transparency on Linux."""
+    root = tk.Tk()
+    root.overrideredirect(True)  # Remove window borders
+    root.attributes("-topmost", True)  # Keep on top of other windows
+    root.attributes('-alpha', TRANSPARENCY_LEVEL)  # Set transparency level
+    
+    # Set the geometry of the window to be centered
+    root.geometry(f"{OVERLAY_WIDTH}x{OVERLAY_HEIGHT}+{root.winfo_screenwidth()//2 - OVERLAY_WIDTH//2}+{root.winfo_screenheight()//2 - OVERLAY_HEIGHT//2}")
+    
+    # Create a canvas to draw the pill-shaped background
+    canvas = tk.Canvas(root, width=OVERLAY_WIDTH, height=OVERLAY_HEIGHT, highlightthickness=0, bg="black")
+    canvas.pack(fill="both", expand=True)
+    
+    # Draw a rounded rectangle as the pill shape background
+    round_rectangle(canvas, 0, 0, OVERLAY_WIDTH, OVERLAY_HEIGHT, radius=BORDER_RADIUS, fill="black")
+    
+    # Create a label with a bigger font that fills the window (centered in the pill shape)
+    label = tk.Label(canvas, text=predicted_action, font=("Arial", int(OVERLAY_HEIGHT * 0.2), "bold"), fg="white", bg="black")
+    label.place(relx=0.5, rely=0.5, anchor="center")
+
+    # Close the overlay after a delay using tkinter's after method
+    root.after(duration * 1000, root.destroy)
+
+    # Start the Tkinter main loop (this should stay in the main thread)
+    root.mainloop()
+
+
+# Update the predict_action function to show the overlay without threading
+def predict_action():
     # Ensure each IMU data array has 60 elements
     ax_padded = pad_or_truncate(dataPacket["ax"])
     ay_padded = pad_or_truncate(dataPacket["ay"])
@@ -103,23 +205,26 @@ def get_imu_data():
     
     # Check if the highest probability is above the threshold
     max_probability = np.max(probabilities)
-    if max_probability >= 0.94:
+    if max_probability >= 0:
         # Decode the predicted class index back to the original label
         predicted_label = label_encoder.inverse_transform(predicted_class)
+        predicted_action = f"{predicted_label[0]} ({max_probability:.5f})"
         print(f"Predicted label: {predicted_label[0]} with probability: {max_probability:.5f}")
+        
+        # Show the predicted action in an overlay
+        show_overlay(predicted_action)
     else:
         print("Ignored action (probability too low)")
     
     # Reset the dataPacket for the next IMU data collection
-    dataPacket["ax"] = []
-    dataPacket["ay"] = []
-    dataPacket["az"] = []
-    dataPacket["gx"] = []
-    dataPacket["gy"] = []
-    dataPacket["gz"] = []
-
-# Example of how BLE data is processed, and how `get_imu_data()` is called after data reception
-# This would remain the same in your script, but `get_imu_data()` is now handling live predictions
+    dataPacket['ax'] = [0] * DATASIZE
+    dataPacket['ay'] = [0] * DATASIZE
+    dataPacket['az'] = [0] * DATASIZE
+    dataPacket['gx'] = [0] * DATASIZE
+    dataPacket['gy'] = [0] * DATASIZE
+    dataPacket['gz'] = [0] * DATASIZE
+    dataPacket['isAllImuReceived'] = False
+    dataPacket['imuCounter'] = 0
 
 class MyDelegate(btle.DefaultDelegate):
     def __init__(self):
@@ -135,16 +240,15 @@ class MyDelegate(btle.DefaultDelegate):
         self.isRxPacketReady = False
         self.rxPacketBuffer += data
 
-        if (len(self.rxPacketBuffer) >= 20):
-            self.payload, crcReceived = struct.unpack("<19sB", self.rxPacketBuffer[:20])
-            
+        if (len(self.rxPacketBuffer) >= PACKET_SIZE):
+            self.payload, crcReceived = struct.unpack(f"<{PACKET_SIZE - 1}sB", self.rxPacketBuffer[:PACKET_SIZE])
             if (CRC8.verify(self.payload, crcReceived)):
                 self.invalidPacketCounter = 0
-                self.packetType, self.seqReceived, self.payload = struct.unpack("<cB17s", self.payload)
+                self.packetType, self.seqReceived, self.payload = struct.unpack(f"<cB{PACKET_SIZE - 3}s", self.payload)
                 self.packetType = chr(self.packetType[0])
                 self.isRxPacketReady = True
                 print(f"[BLE]  Received: {self.packetType} Seq: {self.seqReceived}")
-                self.rxPacketBuffer = self.rxPacketBuffer[20:]
+                self.rxPacketBuffer = self.rxPacketBuffer[PACKET_SIZE:]
             else:
                 print("[BLE]  Checksum failed.")
                 self.invalidPacketCounter += 1
@@ -161,11 +265,7 @@ class BLEConnection:
         self.charUUID = charUUID
         self.device = Peripheral()
         self.beetleSerial = None
-        self.isAllDataReceived = False
         self.isHandshakeRequire = True
-        self.isUpdateNeeded = False
-        self.imuSeq = 0
-        self.isGunUpdate = False
 
     def establishConnection(self):
         print("[BLE] >> Searching and Connecting to the Beetle...")
@@ -182,49 +282,55 @@ class BLEConnection:
 
     def sendSYN(self, seq):
         print(f"[BLE] >> Send SYN: {seq}")
-        packet = bytes(SYN, 'utf-8') + bytes([np.uint8(seq)]) + bytes([0] * 17)
+        packet = bytes(SYN, 'utf-8') + bytes([np.uint8(seq)]) + bytes([0] * (PACKET_SIZE - 3))
         packet = packet + (bytes)([np.uint8(CRC8.checksum(packet))])
+        print(packet)
         self.beetleSerial.write(packet)
         
     def sendSYNACK(self, seq):
         print(f"[BLE] >> Send SYNACK: {seq}")
-        packet = bytes(SYNACK, 'utf-8') + bytes([np.uint8(seq)]) + bytes([0] * 17)
+        packet = bytes(SYNACK, 'utf-8') + bytes([np.uint8(seq)]) + bytes([0] * (PACKET_SIZE - 3))
         packet = packet + (bytes)([np.uint8(CRC8.checksum(packet))])
         self.beetleSerial.write(packet)
 
     def sendACK(self, seq):
         print(f"[BLE]    Send ACK: {seq}")
-        packet = bytes(ACK, 'utf-8') + bytes([np.uint8(seq)]) + bytes([0] * 17)
+        packet = bytes(ACK, 'utf-8') + bytes([np.uint8(seq)]) + bytes([0] * (PACKET_SIZE - 3))
         packet = packet + (bytes)([np.uint8(CRC8.checksum(packet))])
         self.beetleSerial.write(packet)
     
     def sendUPDATE(self):
-        self.isUpdateNeeded = True
-        updatePacket['seq'] += 1
+        print("[BLE] >> Sending UPDATE...")
+        myUpdatePacket = updatePacketQueue.pop(0)
+        print(f"[BLE] >> Update Packet: {myUpdatePacket}")
         for i in range(5):
-            packet = bytes(UPDATE, 'utf-8') + bytes([0] * 2) +bytes([np.uint8(updatePacket['bullet'])]) + bytes([0] * 14)
+            packet = bytes(UPDATE, 'utf-8') + bytes([np.uint8(updatePacket['seq'] )]) + bytes([0] * 3) + bytes([np.uint8(myUpdatePacket['bullets'])]) + bytes([np.uint8(myUpdatePacket['isReload'])]) + bytes([0] * (PACKET_SIZE - 8))
             packet = packet + (bytes)([np.uint8(CRC8.checksum(packet))])
             self.beetleSerial.write(packet)
             print(f"[BLE] >> Send UPDATE to the beetle: {updatePacket['seq']}")
 
-            # wait for ack and check the ack seq
             if (self.device.waitForNotifications(ACK_TIMEOUT) and self.device.delegate.isRxPacketReady and not self.isHandshakeRequire):
-                if (self.device.delegate.packetType ==  ACK and (self.device.delegate.seqReceived == updatePacket['seq'])):
-                    self.isUpdateNeeded = False
+                if (self.device.delegate.packetType == SYNACK):
+                    self.sendSYNACK(0)
+                elif (self.device.delegate.packetType ==  ACK and (self.device.delegate.seqReceived == updatePacket['seq'])):
                     updatePacket['seq'] += 1
-                    if (updatePacket['seq']) > 100:
-                        updatePacket['seq'] = 0
+                    updatePacket['seq'] %= 100
                     print("[BLE] >> Done update player")
                     print("[BLE] _______________________________________________________________ ")
-                    return
-                elif (self.device.delegate.packetType ==  DATA):
+                    return 
+                # if recevied data instead of ACK, collect the data first
+                elif (self.device.delegate.packetType == DATA):
                     self.parseRxPacket()
+
+            elif (self.isHandshakeRequire):
+                break
+        # after 5 attempts of sending update
         self.isHandshakeRequire = True
 
     def performHandShake(self):
         print("[BLE] >> Performing Handshake...")
-        self.sendSYN(shootPacket['seq'] + 1)
-        if (self.device.waitForNotifications(ACK_TIMEOUT) and self.device.delegate.isRxPacketReady):
+        self.sendSYN(0)
+        if (self.device.waitForNotifications(HANDSHAKE_TIMEOUT) and self.device.delegate.isRxPacketReady):
             if (self.device.delegate.packetType ==  SYNACK):
                 self.sendSYNACK(0)
                 self.isHandshakeRequire = False
@@ -232,39 +338,28 @@ class BLEConnection:
                     self.device.delegate.invalidPacketCounter = 0
                 print("[BLE] >> Handshake Done.")
                 print("[BLE] _______________________________________________________________ ")
+                if (not connectionStatus['isConnected']):
+                    connectionStatus['isConnected'] = True
+                    connectionStatusQueue.append(connectionStatus.copy())
                 return True
         print("[BLE] >> Handshake Failed.")
         return False
 
-    def updateData(self):
-        dataPacket['seq']  = self.device.delegate.seqReceived
-        unpackFormat = "<hhhhhh" + str(5) + "s"
-        ax, ay, az, gx, gy, gz, padding = struct.unpack(unpackFormat, self.device.delegate.payload)
-        # dataPacket['ax'].append(ax)
-        # dataPacket['ay'].append(ay)
-        # dataPacket['az'].append(az)
-        # dataPacket['gx'].append(gx)
-        # dataPacket['gy'].append(gy)
-        # dataPacket['gz'].append(gz)
-        # print(ax, ay, az, gx, gy, gz)
-        if dataPacket['seq'] == 0:
-            self.imuSeq = 0
-            dataPacket['ax'] = []
-            dataPacket['ay'] = []
-            dataPacket['az'] = []
-            dataPacket['gx'] = []
-            dataPacket['gy'] = []
-            dataPacket['gz'] = []
+    def appendImuData(self):
+        if dataPacket['seq'] >= DATASIZE - 1:
+            return
 
-        while (dataPacket['seq'] >= self.imuSeq):
-            dataPacket['ax'].append(ax)
-            dataPacket['ay'].append(ay)
-            dataPacket['az'].append(az)
-            dataPacket['gx'].append(gx)
-            dataPacket['gy'].append(gy)
-            dataPacket['gz'].append(gz)
-            self.imuSeq += 1
-        #print(f"    Updated {dataPacket}")
+        unpackFormat = "<hhhhhh"
+        ax, ay, az, gx, gy, gz = struct.unpack(unpackFormat, self.device.delegate.payload)
+        print(f"[BLE]    Received {ax}, {ay}, {az}, {gx}, {gy}, {gz}")
+        dataPacket['imuCounter'] += 1
+        dataPacket['ax'][dataPacket['seq']] = ax
+        dataPacket['ay'][dataPacket['seq']] = ay
+        dataPacket['az'][dataPacket['seq']] = az
+        dataPacket['gx'][dataPacket['seq']] = gx
+        dataPacket['gy'][dataPacket['seq']] = gy
+        dataPacket['gz'][dataPacket['seq']] = gz
+
 
     def parseRxPacket(self):
         packetType = self.device.delegate.packetType
@@ -273,65 +368,92 @@ class BLEConnection:
 
         if (packetType == SHOOT):
             self.sendACK(seqReceived)
-            if (shootPacket['seq'] != seqReceived):
-                shootPacket['seq']  = seqReceived
-                unpackFormat = "<BB" + str(15) + "s"
-                shootPacket['hit'], shootPacket['bullet'], padding = struct.unpack(unpackFormat, payload)
+        
         elif (packetType == DATA):
-            self.updateData()
-            self.isAllDataReceived = False
+            dataPacket['seq']  = self.device.delegate.seqReceived
+            if (dataPacket['seq'] >= 5):
+                return
+            self.appendImuData()
+
             # break when received the last packet, or timeout, or received other types of packet that's not DATA
-            while (not self.isAllDataReceived and self.device.waitForNotifications(IMU_TIMEOUT)):
+            while (not dataPacket['isAllImuReceived'] and self.device.waitForNotifications(IMU_TIMEOUT)):
                 if (not self.device.delegate.isRxPacketReady): # in case of fragmentation
                     continue
                 if (self.device.delegate.packetType != DATA):
                     break
-                self.updateData()
-                if (dataPacket['seq'] == 59):
-                    self.isAllDataReceived = True
-            # wait next data until timeout, make sure there is no empty data point
-            if (dataPacket['seq'] != 59):
-                dataPacket['seq'] = 59
-                self.updateData()
+                
+                dataPacket['seq']  = self.device.delegate.seqReceived
+                self.appendImuData()
+
+                if (dataPacket['seq'] >= DATASIZE - 1):
+                    dataPacket['isAllImuReceived'] = True
+
             # all data is ready
-            self.isAllDataReceived = True
-            self.imuSeq = 0
-            print(f"[BLE]    All IMU data is received.")
-            #print(dataPacket)
-            get_imu_data()
-            print("[BLE] _______________________________________________________________ ")
-        if (packetType == SYNACK):
+            dataPacket['isAllImuReceived'] = True
+            print(f"[BLE] >> All IMU data is received.")
+            predict_action()
+            
+        elif (packetType == SYNACK):
             self.sendSYNACK(0)
+        
         else:
             self.device.delegate.invalidPacketCounter += 1
-            print(f" Unpack: {packetType} {payload}")
+            print(f"[BLE] Unpack: {packetType} {payload}")
         
         self.device.delegate.packetType = ''
         return packetType
 
-    def main(self):
-        self.device.delegate.isRxPacketReady = False
+    def run(self):
+        while True: # BLE loop
+            try: 
+                self = BLEConnection(MAC_ADDR, SERVICE_UUID, CHAR_UUID)
+                self.establishConnection()
+                self.isHandshakeRequire = True
+                while True:
+                    self.device.delegate.isRxPacketReady = False
+                    if ((self.device.delegate.invalidPacketCounter >= 5) or self.isHandshakeRequire):
+                        self.isHandshakeRequire = not self.performHandShake()
+                    else:
+                        if (len(updatePacketQueue) > 0):
+                            self.sendUPDATE()
+                        if (self.device.waitForNotifications(0.1) and self.device.delegate.isRxPacketReady):
+                            self.parseRxPacket()
+            except BTLEDisconnectError:
+                print("[BLE] >> Disconnected.")
+                if (connectionStatus['isConnected']):
+                    connectionStatus['isConnected'] = False
+                    connectionStatusQueue.append(connectionStatus.copy())
 
-        # re-handshake if needed
-        if ((self.device.delegate.invalidPacketCounter >= 5) or self.isHandshakeRequire):
-            self.isHandshakeRequire = not self.performHandShake()
-        else: 
-            # send update if needed
-            isUpdateNeed = not bool(random.randint(0,10)) and shootPacket['bullet'] == 0
-            if (isUpdateNeed and (self.device.delegate.packetType != DATA or self.isAllDataReceived)):
-                self.sendUPDATE()
-            if(self.device.waitForNotifications(0.1) and self.device.delegate.isRxPacketReady):
-                ble1.parseRxPacket()
+# Placeholder functions for Bluetooth communication
+def get_imu_data():
+    action_occurred = dataPacket['isAllImuReceived'] and dataPacket['imuCounter'] > 30
+    
+    ax = dataPacket['ax'].copy()
+    ay = dataPacket['ay'].copy()
+    az = dataPacket['az'].copy()
+    gx = dataPacket['gx'].copy()
+    gy = dataPacket['gy'].copy()
+    gz = dataPacket['gz'].copy()
+    # Reset all back to 0
+    dataPacket['ax'] = [0] * DATASIZE
+    dataPacket['ay'] = [0] * DATASIZE
+    dataPacket['az'] = [0] * DATASIZE
+    dataPacket['gx'] = [0] * DATASIZE
+    dataPacket['gy'] = [0] * DATASIZE
+    dataPacket['gz'] = [0] * DATASIZE
+    dataPacket['isAllImuReceived'] = False
+    dataPacket['imuCounter'] = 0
+    
+    if action_occurred:
+        print(f"[BLE] >> Relay IMU Data to Server")
+        return ax, ay, az, gx, gy, gz
+    else:
+        return None
 
 if __name__ == '__main__':
-    # main program
-    while True:
-        try: 
-            ble1 = BLEConnection(MAC_ADDR, SERVICE_UUID, CHAR_UUID)
-            ble1.establishConnection()
-            ble1.isHandshakeRequire = True
-            while True:
-                ble1.main()
+    ble1 = BLEConnection(MAC_ADDR, SERVICE_UUID, CHAR_UUID)
+    try:
+        ble1.run()
+    except KeyboardInterrupt:
+        print('[DEBUG] Glove Beetle Server stopped by user')
 
-        except BTLEDisconnectError:
-            pass

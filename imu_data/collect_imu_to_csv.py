@@ -14,7 +14,7 @@ import csv
 # Load environment variables from .env file
 load_dotenv()
 
-NAME_OF_ACTION = "reload"
+NAME_OF_ACTION = "shaking"
 
 # Broker configurations
 BROKER = os.getenv('BROKER')
