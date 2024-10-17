@@ -18,13 +18,12 @@ BROKER = os.getenv('BROKER')
 BROKERUSER = os.getenv('BROKERUSER')
 PASSWORD = os.getenv('PASSWORD')
 RABBITMQ_PORT = int(os.getenv('RABBITMQ_PORT', '5672'))
-MQTT_PORT = int(os.getenv('MQTT_PORT', '1883'))
 
 # RabbitMQ queues
 UPDATE_GE_QUEUE = os.getenv('UPDATE_GE_QUEUE', 'update_ge_queue')
 
-# MQTT topic
-MQTT_TOPIC_UPDATE_EVERYONE = os.getenv('MQTT_TOPIC_UPDATE_EVERYONE', 'update_everyone')
+# RabbitMQ exchanges
+UPDATE_EVERYONE_EXCHANGE = os.getenv('UPDATE_EVERYONE_EXCHANGE', 'update_everyone_exchange')
 
 # Player ID this server is handling
 PLAYER_ID = int(os.getenv('PLAYER_ID', '2'))
@@ -79,6 +78,8 @@ class VestBeetleServer:
         self.rabbitmq_connection = None
         self.channel = None
         self.should_run = True
+        self.exchange = None
+        self.update_queue = None
 
     async def setup_rabbitmq(self):
         print('[DEBUG] Connecting to RabbitMQ broker...')
@@ -90,6 +91,9 @@ class VestBeetleServer:
         )
         self.channel = await self.rabbitmq_connection.channel()
         await self.channel.declare_queue(UPDATE_GE_QUEUE, durable=True)
+        self.exchange = await self.channel.declare_exchange(UPDATE_EVERYONE_EXCHANGE, aio_pika.ExchangeType.FANOUT, durable=True)
+        self.update_queue = await self.channel.declare_queue('', exclusive=True)
+        await self.update_queue.bind(self.exchange)
         print(f'[DEBUG] Connected to RabbitMQ broker at {BROKER}:{RABBITMQ_PORT}')
     
     async def send_connection_status(self):
@@ -113,75 +117,48 @@ class VestBeetleServer:
                 print(f'[DEBUG] Published connection status to {UPDATE_GE_QUEUE}')
             await asyncio.sleep(0.1)
     
-    async def process_mqtt_messages(self, mqtt_client):
-        # Subscribe to MQTT topic
-        await mqtt_client.subscribe(MQTT_TOPIC_UPDATE_EVERYONE, qos=2)
-        print(f'[DEBUG] Subscribed to MQTT topic {MQTT_TOPIC_UPDATE_EVERYONE}')
-        
-        async for message in mqtt_client.messages:
-            payload = message.payload.decode('utf-8')
-            try:
-                data = json.loads(payload)
-                # Extract HP and shield info for the specific player
-                print(f'[DEBUG] Received MQTT payload: {data}')
-                game_state = data.get('game_state', {})
-                action = data.get('action', None)
-                player_id_for_action = data.get('player_id', None)
-                player_key = f'p{PLAYER_ID}'
-                
-                hp = game_state.get(player_key, {}).get('hp', None)
-                shield_hp = game_state.get(player_key, {}).get('shield_hp', None)
-                
-                # if hp is not None and shield_hp is not None and (hp != updatePacket['hp'] or shield_hp != updatePacket['shield_hp']):
-                
-                if hp is not None and shield_hp is not None:
-                    updatePacket['hp'] = hp
-                    updatePacket['shield_hp'] = shield_hp
-                    gotHit = game_state.get(f'p{player_id_for_action}', {}).get('opponent_hit', False) or game_state.get(f'p{player_id_for_action}', {}).get('opponent_shield_hit', False)
+    async def consume_updatess(self):
+        async with self.update_queue.iterator() as queue_iter:
+            async for message in queue_iter:
+                async with message.process():
+                    payload = message.body.decode('utf-8')
+                    try:
+                        data = json.loads(payload)
+                        print(f'[DEBUG] Received RabbitMQ payload: {data}')
+                        game_state = data.get('game_state', {})
+                        action = data.get('action', None)
+                        player_id_for_action = data.get('player_id', None)
+                        player_key = f'p{PLAYER_ID}'
+                        
+                        hp = game_state.get(player_key, {}).get('hp', None)
+                        shield_hp = game_state.get(player_key, {}).get('shield_hp', None)
+                        
+                        if hp is not None and shield_hp is not None:
+                            updatePacket['hp'] = hp
+                            updatePacket['shield_hp'] = shield_hp
+                            gotHit = game_state.get(f'p{player_id_for_action}', {}).get('opponent_hit', False) or game_state.get(f'p{player_id_for_action}', {}).get('opponent_shield_hit', False)
+                            
+                            if action is None:
+                                updatePacket['action_type'] = 0
+                            else:
+                                if player_id_for_action == PLAYER_ID and action == 'shield': 
+                                    updatePacket['action_type'] = 2
+                                elif player_id_for_action != PLAYER_ID and gotHit:
+                                    updatePacket['action_type'] = 1
+                            updatePacketQueue.append(updatePacket.copy())
                     
-                    if action is None:
-                        updatePacket['action_type'] = 0
-                    else:
-                        if player_id_for_action == PLAYER_ID and action == 'shield': 
-                            updatePacket['action_type'] = 2
-                        elif player_id_for_action != PLAYER_ID and gotHit:
-                            updatePacket['action_type'] = 1
-                    updatePacketQueue.append(updatePacket.copy())
-            
-            except json.JSONDecodeError:
-                print(f'[ERROR] Invalid JSON payload: {payload}')
-            except Exception as e:
-                print(f'[ERROR] {e}')
+                    except json.JSONDecodeError:
+                        print(f'[ERROR] Invalid JSON payload: {payload}')
+                    except Exception as e:
+                        print(f'[ERROR] {e}')
             
     async def run(self):
         await self.setup_rabbitmq()
 
-        mqtt_client = None
-        while True:  # Loop for reconnection attempts
-            try:
-                if mqtt_client:
-                    mqtt_client = None
-                    
-                print('[DEBUG] Attempting MQTT connection...')
-                mqtt_client = aiomqtt.Client(
-                    hostname=BROKER,
-                    port=MQTT_PORT,
-                    username=BROKERUSER,
-                    password=PASSWORD,
-                    identifier=f'vest_beetle_server{PLAYER_ID}',
-                    keepalive=60
-                )
-                
-                async with mqtt_client:
-                    print(f'[DEBUG] Connected to MQTT broker at {BROKER}:{MQTT_PORT}')
-                    
-                    await asyncio.gather(
-                        self.process_mqtt_messages(mqtt_client),
-                        self.send_connection_status(),
-                    )
-            except Exception as e:
-                print(f'[ERROR] MQTT connection error: {e}')
-                await asyncio.sleep(5)  # Delay before retrying the connection
+        await asyncio.gather(
+            self.send_connection_status(),
+            self.consume_updatess(),
+        )
             
 
 async def main():

@@ -5,7 +5,6 @@ import json
 import os
 from dotenv import load_dotenv
 import aio_pika
-import aiomqtt
 from bluepy.btle import BTLEDisconnectError
 import struct
 import myBle
@@ -18,7 +17,6 @@ BROKER = os.getenv('BROKER')
 BROKERUSER = os.getenv('BROKERUSER')
 PASSWORD = os.getenv('PASSWORD')
 RABBITMQ_PORT = int(os.getenv('RABBITMQ_PORT', '5672'))
-MQTT_PORT = int(os.getenv('MQTT_PORT', '1883'))
 
 # RabbitMQ queue
 AI_QUEUE = os.getenv('AI_QUEUE', 'ai_queue')
@@ -215,32 +213,10 @@ class LegBeetleServer:
     async def run(self):
         await self.setup_rabbitmq()
 
-        mqtt_client = None
-        while True:  # Loop for reconnection attempts
-            try:
-                if mqtt_client:
-                    mqtt_client = None
-                    
-                print('[DEBUG] Attempting MQTT connection...')
-                mqtt_client = aiomqtt.Client(
-                    hostname=BROKER,
-                    port=MQTT_PORT,
-                    username=BROKERUSER,
-                    password=PASSWORD,
-                    identifier=f'glove_beetle_server{PLAYER_ID}',
-                    keepalive=60  # Increase the keepalive to ensure regular pings
-                )
-                
-                async with mqtt_client:
-                    print(f'[DEBUG] Connected to MQTT broker at {BROKER}:{MQTT_PORT}')
-                    
-                    await asyncio.gather(
-                        self.send_imu_data(),
-                        self.send_connection_status()
-                        )
-            except Exception as e:
-                print(f'[ERROR] MQTT connection error: {e}')
-                await asyncio.sleep(5)  # Delay before retrying the connection
+        await asyncio.gather(
+            self.send_imu_data(),
+            self.send_connection_status(),
+        )
 
 async def main():
     await asyncio.gather(leg_beetle_server.run(), ble1.run())

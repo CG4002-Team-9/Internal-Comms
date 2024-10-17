@@ -18,14 +18,13 @@ BROKER = os.getenv('BROKER')
 BROKERUSER = os.getenv('BROKERUSER')
 PASSWORD = os.getenv('PASSWORD')
 RABBITMQ_PORT = int(os.getenv('RABBITMQ_PORT', '5672'))
-MQTT_PORT = int(os.getenv('MQTT_PORT', '1883'))
 
 # RabbitMQ queues
 AI_QUEUE = os.getenv('AI_QUEUE', 'ai_queue')
 UPDATE_GE_QUEUE = os.getenv('UPDATE_GE_QUEUE', 'update_ge_queue')
 
-# MQTT topic
-MQTT_TOPIC_UPDATE_EVERYONE = os.getenv('MQTT_TOPIC_UPDATE_EVERYONE', 'update_everyone')
+# RabbitMQ exchanges
+UPDATE_EVERYONE_EXCHANGE = os.getenv('UPDATE_EVERYONE_EXCHANGE', 'update_everyone_exchange')
 
 # Player ID this server is handling
 PLAYER_ID = int(os.getenv('PLAYER_ID', '1'))
@@ -74,7 +73,7 @@ class ExtendedBLEConnection(myBle.BLEConnection):
     def appendImuData(self):
         unpackFormat = "<hhhhhh"
         ax, ay, az, gx, gy, gz = struct.unpack(unpackFormat, self.device.delegate.payload)
-        print(f"[BLE]    Saved {ax}, {ay}, {az}, {gx}, {gy}, {gz}")
+        # print(f"[BLE]    Saved {ax}, {ay}, {az}, {gx}, {gy}, {gz}")
 
         dataPacket['imuCounter'] += 1
         dataPacket['ax'][dataPacket['seq']] = ax
@@ -194,6 +193,8 @@ class GloveBeetleServer:
     def __init__(self):
         self.rabbitmq_connection = None
         self.channel = None
+        self.exchange = None
+        self.update_queue = None
         self.should_run = True
 
     async def setup_rabbitmq(self):
@@ -207,6 +208,9 @@ class GloveBeetleServer:
         self.channel = await self.rabbitmq_connection.channel()
         await self.channel.declare_queue(AI_QUEUE, durable=True)
         await self.channel.declare_queue(UPDATE_GE_QUEUE, durable=True)
+        self.exchange = await self.channel.declare_exchange(UPDATE_EVERYONE_EXCHANGE, aio_pika.ExchangeType.FANOUT, durable=True)
+        self.update_queue = await self.channel.declare_queue('', exclusive=True)
+        await self.update_queue.bind(self.exchange)
         print(f'[DEBUG] Connected to RabbitMQ broker at {BROKER}:{RABBITMQ_PORT}')
 
     async def send_imu_data(self):
@@ -226,7 +230,7 @@ class GloveBeetleServer:
                     'imu_device': 'glove'
                 }
                 print(f"[DEBUG] Length of IMU Data: {length}")
-                print(f"[DEBUG] IMU Data: {message}")
+                # print(f"[DEBUG] IMU Data: {message}")
                 message_body = json.dumps(message).encode('utf-8')
                 await self.channel.default_exchange.publish(
                     aio_pika.Message(body=message_body),
@@ -269,69 +273,45 @@ class GloveBeetleServer:
                 )
                 print(f'[DEBUG] Published connection status to {UPDATE_GE_QUEUE}')
             await asyncio.sleep(0.1)
+                
+    async def consume_updates(self):
+        async with self.update_queue.iterator() as queue_iter:
+            async for message in queue_iter:
+                async with message.process():
+                    payload = message.body.decode('utf-8')
+                    print(f'[DEBUG] Received update: {payload}')
+                    try:
+                        data = json.loads(payload)
+                        game_state = data.get('game_state', {})
+                        action = data.get('action', None)
+                        player_id_for_action = data.get('player_id', None)
+                        player_key = f'p{PLAYER_ID}'
+                        bullets = game_state.get(player_key).get('bullets', None)
+                        
+                        if bullets is not None and bullets != updatePacket['bullets']:
+                            updatePacket['bullets'] = bullets
+                            if action is not None and player_id_for_action == PLAYER_ID and action == 'reload':
+                                updatePacket['isReload'] = True
+                                print(f'[DEBUG] Player {PLAYER_ID} is reloading')
+                            else:
+                                updatePacket['isReload'] = False
+                            
+                            updatePacketQueue.append(updatePacket.copy())
+                        
+                    except json.JSONDecodeError:
+                        print(f'[ERROR] Invalid JSON payload: {payload}')
+                    except Exception as e:
+                        print(f'[ERROR] {e}')
     
-    async def process_mqtt_messages(self, mqtt_client):
-        # Subscribe to MQTT topic
-        await mqtt_client.subscribe(MQTT_TOPIC_UPDATE_EVERYONE, qos=2)
-        print(f'[DEBUG] Subscribed to MQTT topic {MQTT_TOPIC_UPDATE_EVERYONE}')
-        
-        async for message in mqtt_client.messages:
-            payload = message.payload.decode('utf-8')
-            try:
-                data = json.loads(payload)
-                print(f'[DEBUG] Received MQTT message: {data}')
-                game_state = data.get('game_state', {})
-                action = data.get('action', None)
-                player_id_for_action = data.get('player_id', None)
-                player_key = f'p{PLAYER_ID}'
-                bullets = game_state.get(player_key).get('bullets', None)
-                
-                if bullets is not None and bullets != updatePacket['bullets']:
-                    updatePacket['bullets'] = bullets
-                    if action is not None and player_id_for_action == PLAYER_ID and action == 'reload':
-                        updatePacket['isReload'] = True
-                        print(f'[DEBUG] Player {PLAYER_ID} is reloading')
-                    else:
-                        updatePacket['isReload'] = False
-                    
-                    updatePacketQueue.append(updatePacket.copy())
-                
-            except json.JSONDecodeError:
-                print(f'[ERROR] Invalid JSON payload: {payload}')
-            except Exception as e:
-                print(f'[ERROR] {e}')
-                
     async def run(self):
         await self.setup_rabbitmq()
-
-        mqtt_client = None
-        while True:  # Loop for reconnection attempts
-            try:
-                if mqtt_client:
-                    mqtt_client = None
-                    
-                print('[DEBUG] Attempting MQTT connection...')
-                mqtt_client = aiomqtt.Client(
-                    hostname=BROKER,
-                    port=MQTT_PORT,
-                    username=BROKERUSER,
-                    password=PASSWORD,
-                    identifier=f'glove_beetle_server{PLAYER_ID}',
-                    keepalive=60  # Increase the keepalive to ensure regular pings
-                )
-                
-                async with mqtt_client:
-                    print(f'[DEBUG] Connected to MQTT broker at {BROKER}:{MQTT_PORT}')
-                    
-                    await asyncio.gather(
-                        self.send_imu_data(),
-                        self.send_gun_action(),
-                        self.process_mqtt_messages(mqtt_client),
-                        self.send_connection_status(),
-                    )
-            except Exception as e:
-                print(f'[ERROR] MQTT connection error: {e}')
-                await asyncio.sleep(5)  # Delay before retrying the connection
+        
+        await asyncio.gather(
+            self.send_imu_data(),
+            self.send_gun_action(),
+            self.send_connection_status(),
+            self.consume_updates(),
+        )
 
 async def main():
     await asyncio.gather(glove_beetle_server.run(), ble1.run())
