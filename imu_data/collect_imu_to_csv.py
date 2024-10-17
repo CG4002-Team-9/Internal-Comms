@@ -14,7 +14,9 @@ import csv
 # Load environment variables from .env file
 load_dotenv()
 
-NAME_OF_ACTION = "raise_arm"
+NAME_OF_ACTION = "soccer"
+DEVICE = "LEG"      # LEG or GLOVE
+DATASIZE = 40
 
 # Broker configurations
 BROKER = os.getenv('BROKER')
@@ -35,7 +37,7 @@ PLAYER_ID = int(os.getenv('PLAYER_ID', '1'))
 print(f'[DEBUG] Player ID: {PLAYER_ID}')
 
 # BLE
-MAC_ADDR = os.getenv(f'GLOVE_P{PLAYER_ID}')
+MAC_ADDR = os.getenv(f'{DEVICE}_P{PLAYER_ID}')
 print(f'[DEBUG] MAC Address: {MAC_ADDR}')
 SERVICE_UUID = "0000dfb0-0000-1000-8000-00805f9b34fb"
 CHAR_UUID = "0000dfb1-0000-1000-8000-00805f9b34fb"
@@ -44,7 +46,6 @@ ACK_TIMEOUT = 0.5
 HANDSHAKE_TIMEOUT = 2
 CRC8 = Calculator(Crc8.CCITT)
 PACKET_SIZE = 15
-DATASIZE = 60
 
 # Packet Types
 SYN = 'S'
@@ -91,7 +92,7 @@ dataPacketQueue = []
 
 def saveImuToCSV():
     if (dataPacket['imuCounter'] > 30):
-        with open(f"{NAME_OF_ACTION}_{PLAYER_ID}.csv", "a") as f:
+        with open(f"new_data/{NAME_OF_ACTION}_{PLAYER_ID}.csv", "a") as f:
             csv_writer = csv.writer(f)
             csv_writer.writerow([str(dataPacket["ax"]),str(dataPacket["ay"]),str(dataPacket["az"]),str(dataPacket["gx"]),str(dataPacket["gy"]),str(dataPacket["gz"])])
 
@@ -106,7 +107,7 @@ def saveImuToCSV():
     dataPacket['imuCounter'] = 0  
 
 def deleteLastRow():
-    filepath = f"{NAME_OF_ACTION}_{PLAYER_ID}.csv"
+    filepath = f"new_data/{NAME_OF_ACTION}_{PLAYER_ID}.csv"
     os.system('sed -i "$ d" {0}'.format(filepath))
 
     print('deleted last row')
@@ -170,7 +171,6 @@ class BLEConnection:
         print(f"[BLE] >> Send SYN: {seq}")
         packet = bytes(SYN, 'utf-8') + bytes([np.uint8(seq)]) + bytes([0] * (PACKET_SIZE - 3))
         packet = packet + (bytes)([np.uint8(CRC8.checksum(packet))])
-        print(packet)
         self.beetleSerial.write(packet)
         
     def sendSYNACK(self, seq):
@@ -232,7 +232,7 @@ class BLEConnection:
         return False
 
     def appendImuData(self):
-        if dataPacket['seq'] >= DATASIZE - 1:
+        if dataPacket['seq'] > DATASIZE - 1:
             return
 
         unpackFormat = "<hhhhhh"
@@ -253,8 +253,9 @@ class BLEConnection:
         payload = self.device.delegate.payload
 
         if (packetType == SHOOT):
-            deleteLastRow()
             self.sendACK(seqReceived)
+            if (shootPacket['seq'] != seqReceived):
+                deleteLastRow()
         
         elif (packetType == DATA):
             dataPacket['seq']  = self.device.delegate.seqReceived
