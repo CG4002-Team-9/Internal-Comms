@@ -222,7 +222,8 @@ class GloveBeetleServer:
                     'gx': gx,
                     'gy': gy,
                     'gz': gz,
-                    'player_id': PLAYER_ID
+                    'player_id': PLAYER_ID,
+                    'imu_device': 'glove'
                 }
                 print(f"[DEBUG] Length of IMU Data: {length}")
                 print(f"[DEBUG] IMU Data: {message}")
@@ -266,6 +267,7 @@ class GloveBeetleServer:
                     aio_pika.Message(body=message_body),
                     routing_key=UPDATE_GE_QUEUE,
                 )
+                print(f'[DEBUG] Published connection status to {UPDATE_GE_QUEUE}')
             await asyncio.sleep(0.1)
     
     async def process_mqtt_messages(self, mqtt_client):
@@ -284,9 +286,7 @@ class GloveBeetleServer:
                 player_key = f'p{PLAYER_ID}'
                 bullets = game_state.get(player_key).get('bullets', None)
                 
-                # if bullets is not None and bullets != updatePacket['bullets']:
-                
-                if bullets is not None:
+                if bullets is not None and bullets != updatePacket['bullets']:
                     updatePacket['bullets'] = bullets
                     if action is not None and player_id_for_action == PLAYER_ID and action == 'reload':
                         updatePacket['isReload'] = True
