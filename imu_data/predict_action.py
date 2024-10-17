@@ -92,7 +92,7 @@ dataPacket = {
 
 dataPacketQueue = []
 
-model = tf.keras.models.load_model('gesture_model_real.h5')
+model = tf.keras.models.load_model('gesture_model_real_raisearm.h5')
 
 # Define the scaler to scale between -1 and 1 (to maintain negative values)
 scaler = MinMaxScaler(feature_range=(-1, 1))
