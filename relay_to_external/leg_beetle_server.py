@@ -28,7 +28,7 @@ print(f'[DEBUG] Player ID: {PLAYER_ID}')
 
 # BLE
 MAC_ADDR = os.getenv(f'LEG_P{PLAYER_ID}')
-IMU_SAMPLES = 60
+IMU_SAMPLES = 40
 
 connectionStatus = {
     'isConnected': False,
