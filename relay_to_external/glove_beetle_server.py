@@ -208,6 +208,7 @@ class GloveBeetleServer:
         self.channel = await self.rabbitmq_connection.channel()
         await self.channel.declare_queue(AI_QUEUE, durable=True)
         await self.channel.declare_queue(UPDATE_GE_QUEUE, durable=True)
+        # DECLARE EXCHANGE STUFF
         self.exchange = await self.channel.declare_exchange(UPDATE_EVERYONE_EXCHANGE, aio_pika.ExchangeType.FANOUT, durable=True)
         self.update_queue = await self.channel.declare_queue('', exclusive=True)
         await self.update_queue.bind(self.exchange)

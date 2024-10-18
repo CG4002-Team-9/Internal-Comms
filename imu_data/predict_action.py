@@ -38,7 +38,8 @@ PLAYER_ID = int(os.getenv('PLAYER_ID', '1'))
 print(f'[DEBUG] Player ID: {PLAYER_ID}')
 
 # BLE
-MAC_ADDR = os.getenv(f'GLOVE_P{PLAYER_ID}')
+DEVICE = "LEG"
+MAC_ADDR = os.getenv(f'{DEVICE}_P{PLAYER_ID}')
 print(f'[DEBUG] MAC Address: {MAC_ADDR}')
 SERVICE_UUID = "0000dfb0-0000-1000-8000-00805f9b34fb"
 CHAR_UUID = "0000dfb1-0000-1000-8000-00805f9b34fb"
@@ -47,7 +48,7 @@ ACK_TIMEOUT = 0.5
 HANDSHAKE_TIMEOUT = 2
 CRC8 = Calculator(Crc8.CCITT)
 PACKET_SIZE = 15
-DATASIZE = 60
+DATASIZE = 40
 
 # Packet Types
 SYN = 'S'
@@ -92,7 +93,7 @@ dataPacket = {
 
 dataPacketQueue = []
 
-model = tf.keras.models.load_model('gesture_model_real_raisearm.h5')
+model = tf.keras.models.load_model('gesture_model_real_leg.h5')
 
 # Define the scaler to scale between -1 and 1 (to maintain negative values)
 scaler = MinMaxScaler(feature_range=(-1, 1))
@@ -101,11 +102,11 @@ scaler = MinMaxScaler(feature_range=(-1, 1))
 scaler.fit(np.array([-2**15, 2**15 - 1]).reshape(-1, 1))
 
 
-with open('label_encoder.pkl', 'rb') as file:
+with open('label_encoder_leg.pkl', 'rb') as file:
     label_encoder = pickle.load(file)
 
 # Function to pad or truncate the data to exactly 60 samples
-def pad_or_truncate(array, target_length=60):
+def pad_or_truncate(array, target_length=DATASIZE):
     if len(array) > target_length:
         return array[:target_length]
     elif len(array) < target_length:
