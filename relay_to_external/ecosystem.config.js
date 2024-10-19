@@ -27,5 +27,9 @@ module.exports = {
 				PLAYER_ID: 1,
 			},
 		},
+		{
+			name: "view_predictions",
+			script: "python -u view_predictions.py",
+		},
 	],
 };
