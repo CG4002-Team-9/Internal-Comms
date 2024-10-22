@@ -117,7 +117,7 @@ class VestBeetleServer:
                 print(f'[DEBUG] Published connection status to {UPDATE_GE_QUEUE}')
             await asyncio.sleep(0.1)
     
-    async def consume_updatess(self):
+    async def consume_updates(self):
         async with self.update_queue.iterator() as queue_iter:
             async for message in queue_iter:
                 async with message.process():
@@ -125,6 +125,11 @@ class VestBeetleServer:
                     try:
                         data = json.loads(payload)
                         print(f'[DEBUG] Received RabbitMQ payload: {data}')
+                        
+                        toupdate = data.get('update', False)
+                        if toupdate:
+                            connectionStatusQueue.append(connectionStatus.copy())
+                            
                         game_state = data.get('game_state', {})
                         action = data.get('action', None)
                         player_id_for_action = data.get('player_id', None)
@@ -157,7 +162,7 @@ class VestBeetleServer:
 
         await asyncio.gather(
             self.send_connection_status(),
-            self.consume_updatess(),
+            self.consume_updates(),
         )
             
 

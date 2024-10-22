@@ -284,6 +284,12 @@ class GloveBeetleServer:
                     try:
                         data = json.loads(payload)
                         game_state = data.get('game_state', {})
+                        
+                        toupdate = data.get('update', False)
+                        if toupdate:
+                            connectionStatusQueue.append(connectionStatus.copy())
+                        
+                        
                         action = data.get('action', None)
                         player_id_for_action = data.get('player_id', None)
                         player_key = f'p{PLAYER_ID}'
