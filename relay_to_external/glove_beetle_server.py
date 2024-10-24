@@ -106,8 +106,11 @@ class ExtendedBLEConnection(myBle.BLEConnection):
             while (not dataPacket['isAllImuReceived'] and self.device.waitForNotifications(myBle.IMU_TIMEOUT)):
                 if (not self.device.delegate.isRxPacketReady): # in case of fragmentation
                     continue
-                if (self.device.delegate.packetType != myBle.DATA):
-                    break
+                if (self.device.delegate.packetType != myBle.DATA): # receive other packet; eg. sHOOT
+                    self.imuSeq = 0
+                    print(f"[BLE] >> Recevied {self.device.delegate.packetType}. End of IMU data.")
+                    self.parseRxPacket()
+                    return
 
                 dataPacket['seq'] = self.device.delegate.seqReceived
                 if (dataPacket['seq'] <= IMU_SAMPLES - 1):  # ignored extra samples
@@ -155,7 +158,7 @@ class ExtendedBLEConnection(myBle.BLEConnection):
 
 # Placeholder functions for Bluetooth communication
 def get_imu_data():
-    action_occurred = dataPacket['isAllImuReceived'] and dataPacket['imuCounter'] > 30
+    action_occurred = dataPacket['isAllImuReceived'] and dataPacket['imuCounter'] > (IMU_SAMPLES - 5)
     ax = dataPacket['ax'].copy()
     ay = dataPacket['ay'].copy()
     az = dataPacket['az'].copy()
