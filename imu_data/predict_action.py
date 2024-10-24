@@ -38,7 +38,7 @@ PLAYER_ID = int(os.getenv('PLAYER_ID', '1'))
 print(f'[DEBUG] Player ID: {PLAYER_ID}')
 
 # BLE
-DEVICE = "LEG"
+DEVICE = "GLOVE"
 MAC_ADDR = os.getenv(f'{DEVICE}_P{PLAYER_ID}')
 print(f'[DEBUG] MAC Address: {MAC_ADDR}')
 SERVICE_UUID = "0000dfb0-0000-1000-8000-00805f9b34fb"
@@ -93,7 +93,7 @@ dataPacket = {
 
 dataPacketQueue = []
 
-model = tf.keras.models.load_model('gesture_model_real_leg.h5')
+model = tf.keras.models.load_model('gesture_model_hand_reduced.h5')
 
 # Define the scaler to scale between -1 and 1 (to maintain negative values)
 scaler = MinMaxScaler(feature_range=(-1, 1))
@@ -102,7 +102,7 @@ scaler = MinMaxScaler(feature_range=(-1, 1))
 scaler.fit(np.array([-2**15, 2**15 - 1]).reshape(-1, 1))
 
 
-with open('label_encoder_leg.pkl', 'rb') as file:
+with open('label_encoder_hand.pkl', 'rb') as file:
     label_encoder = pickle.load(file)
 
 # Function to pad or truncate the data to exactly 60 samples
@@ -347,7 +347,7 @@ class BLEConnection:
         return False
 
     def appendImuData(self):
-        if dataPacket['seq'] >= DATASIZE - 1:
+        if dataPacket['seq'] >= DATASIZE:
             return
 
         unpackFormat = "<hhhhhh"
