@@ -22,6 +22,9 @@ RABBITMQ_PORT = int(os.getenv('RABBITMQ_PORT', '5672'))
 AI_QUEUE = os.getenv('AI_QUEUE', 'ai_queue')
 UPDATE_GE_QUEUE = os.getenv('UPDATE_GE_QUEUE', 'update_ge_queue')
 
+# RabbitMQ exchanges
+UPDATE_EVERYONE_EXCHANGE = os.getenv('UPDATE_EVERYONE_EXCHANGE', 'update_everyone_exchange')
+
 # Player ID this server is handling
 PLAYER_ID = int(os.getenv('PLAYER_ID', '1'))
 print(f'[DEBUG] Player ID: {PLAYER_ID}')
@@ -149,6 +152,8 @@ class LegBeetleServer:
     def __init__(self):
         self.rabbitmq_connection = None
         self.channel = None
+        self.exchange = None
+        self.update_queue = None
         self.should_run = True
 
     async def setup_rabbitmq(self):
@@ -162,6 +167,10 @@ class LegBeetleServer:
         self.channel = await self.rabbitmq_connection.channel()
         await self.channel.declare_queue(AI_QUEUE, durable=True)
         await self.channel.declare_queue(UPDATE_GE_QUEUE, durable=True)
+        # DECLARE EXCHANGE STUFF
+        self.exchange = await self.channel.declare_exchange(UPDATE_EVERYONE_EXCHANGE, aio_pika.ExchangeType.FANOUT, durable=True)
+        self.update_queue = await self.channel.declare_queue('', exclusive=True)
+        await self.update_queue.bind(self.exchange)
         print(f'[DEBUG] Connected to RabbitMQ broker at {BROKER}:{RABBITMQ_PORT}')
 
     async def send_imu_data(self):
@@ -189,6 +198,7 @@ class LegBeetleServer:
                 )
                 print(f'[DEBUG] Published IMU data to {AI_QUEUE}')
             await asyncio.sleep(0.1)
+
     async def send_connection_status(self):
         while self.should_run:
             toSend = len(connectionStatusQueue) > 0
@@ -209,14 +219,33 @@ class LegBeetleServer:
                 )
                 print(f'[DEBUG] Published connection status to {UPDATE_GE_QUEUE}')
             await asyncio.sleep(0.1)
-    
+
+    async def consume_updates(self):
+        async with self.update_queue.iterator() as queue_iter:
+            async for message in queue_iter:
+                async with message.process():
+                    payload = message.body.decode('utf-8')
+                    print(f'[DEBUG] Received update: {payload}')
+                    try:
+                        data = json.loads(payload)
+
+                        toupdate = data.get('update', False)
+                        if toupdate:
+                            connectionStatusQueue.append(connectionStatus.copy())
+                        
+                    except json.JSONDecodeError:
+                        print(f'[ERROR] Invalid JSON payload: {payload}')
+                    except Exception as e:
+                        print(f'[ERROR] {e}')
+
     async def run(self):
         await self.setup_rabbitmq()
 
         await asyncio.gather(
             self.send_imu_data(),
             self.send_connection_status(),
-        )
+            self.consume_updates()
+            )
 
 async def main():
     await asyncio.gather(leg_beetle_server.run(), ble1.run())
