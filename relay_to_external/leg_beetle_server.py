@@ -8,6 +8,7 @@ import aio_pika
 from bluepy.btle import BTLEDisconnectError
 import struct
 import myBle
+import collections
 
 # Load environment variables from .env file
 load_dotenv()
@@ -36,7 +37,7 @@ IMU_SAMPLES = 40
 connectionStatus = {
     'isConnected': False,
 }
-connectionStatusQueue = []
+connectionStatusQueue = collections.deque()
 
 dataPacket = {
     'seq': 0,
@@ -49,8 +50,6 @@ dataPacket = {
     'imuCounter': 0,
     'isAllImuReceived': False 
 }
-
-dataPacketQueue = []
 
 class ExtendedBLEConnection(myBle.BLEConnection):
     def appendImuData(self):
@@ -203,7 +202,7 @@ class LegBeetleServer:
         while self.should_run:
             toSend = len(connectionStatusQueue) > 0
             if toSend:
-                myConnectionStatus = connectionStatusQueue.pop(0)
+                myConnectionStatus = connectionStatusQueue.pop()
                 message = {
                     "game_state": {
                         f"p{PLAYER_ID}": {

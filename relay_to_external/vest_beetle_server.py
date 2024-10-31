@@ -6,6 +6,7 @@ import os
 from dotenv import load_dotenv
 import aio_pika
 import aiomqtt
+import collections
 
 from bluepy.btle import BTLEDisconnectError
 import myBle
@@ -44,8 +45,8 @@ updatePacket = {
     'action_type': 0, # 0: no action, 1: damaged, 2: shield deployed
 }
 
-connectionStatusQueue = []
-updatePacketQueue = []
+connectionStatusQueue = collections.deque()
+updatePacketQueue = collections.deque()
 
 class ExtendedBLEConnection(myBle.BLEConnection):
     async def run(self):
@@ -61,7 +62,7 @@ class ExtendedBLEConnection(myBle.BLEConnection):
                         self.isHandshakeRequire = not self.performHandShake(seq=0,connectionStatus=connectionStatus, connectionStatusQueue=connectionStatusQueue)
                     else:
                         if (len(updatePacketQueue) > 0):
-                            self.sendUPDATE(updatePacket, myUpdatePacket = updatePacketQueue.pop(0), isVestUpdate=True)
+                            self.sendUPDATE(updatePacket, myUpdatePacket = updatePacketQueue.pop(), isVestUpdate=True)
                         if (self.device.waitForNotifications(0.1) and self.device.delegate.isRxPacketReady):
                             pass
                     await asyncio.sleep(0.1)
@@ -100,7 +101,7 @@ class VestBeetleServer:
         while self.should_run:
             toSend = len(connectionStatusQueue) > 0
             if toSend:
-                myConnectionStatus = connectionStatusQueue.pop(0)
+                myConnectionStatus = connectionStatusQueue.pop()
                 message = {
                     "game_state": {
                         f"p{PLAYER_ID}": {
@@ -150,7 +151,8 @@ class VestBeetleServer:
                                     updatePacket['action_type'] = 2
                                 elif player_id_for_action != PLAYER_ID and gotHit:
                                     updatePacket['action_type'] = 1
-                            updatePacketQueue.append(updatePacket.copy())
+                            if len(updatePacketQueue) == 0 or updatePacketQueue[-1] != updatePacket:
+                                updatePacketQueue.append(updatePacket.copy())
                     
                     except json.JSONDecodeError:
                         print(f'[ERROR] Invalid JSON payload: {payload}')

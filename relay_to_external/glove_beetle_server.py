@@ -9,6 +9,7 @@ import aiomqtt
 from bluepy.btle import BTLEDisconnectError
 import struct
 import myBle
+import collections
 
 # Load environment variables from .env file
 load_dotenv()
@@ -45,15 +46,15 @@ updatePacket = {
     'isReload': False,
 }
 
-connectionStatusQueue = []
-updatePacketQueue = []
+connectionStatusQueue = collections.deque()
+updatePacketQueue = collections.deque()
 
 shootPacket = {
     'seq': 0,
     'hit': 0,
 }
 
-shootPacketQueue = []
+shootPacketQueue = collections.deque()
 
 dataPacket = {
     'seq': 0,
@@ -66,8 +67,6 @@ dataPacket = {
     'imuCounter': 0,
     'isAllImuReceived': False 
 }
-
-dataPacketQueue = []
 
 class ExtendedBLEConnection(myBle.BLEConnection):
     def appendImuData(self):
@@ -144,7 +143,7 @@ class ExtendedBLEConnection(myBle.BLEConnection):
                         self.isHandshakeRequire = not self.performHandShake(seq=shootPacket['seq'] + 1, connectionStatus=connectionStatus, connectionStatusQueue=connectionStatusQueue)
                     else:
                         if (len(updatePacketQueue) > 0):
-                            self.sendUPDATE(updatePacket, myUpdatePacket = updatePacketQueue.pop(0), isGloveUpdate=True)
+                            self.sendUPDATE(updatePacket, myUpdatePacket = updatePacketQueue.pop(), isGloveUpdate=True)
                         if (self.device.waitForNotifications(0.1) and self.device.delegate.isRxPacketReady):
                             self.parseRxPacket()
                     await asyncio.sleep(0.1)
@@ -183,7 +182,7 @@ def get_imu_data():
 def get_gun_action():
     action_occurred = len(shootPacketQueue) > 0
     if action_occurred:
-        myShootPacket = shootPacketQueue.pop(0)
+        myShootPacket = shootPacketQueue.pop()
         return {
             'action': True,
             'action_type': 'gun',
@@ -261,7 +260,7 @@ class GloveBeetleServer:
         while self.should_run:
             toSend = len(connectionStatusQueue) > 0
             if toSend:
-                myConnectionStatus = connectionStatusQueue.pop(0)
+                myConnectionStatus = connectionStatusQueue.pop()
                 message = {
                     "game_state": {
                         f"p{PLAYER_ID}": {
@@ -306,7 +305,8 @@ class GloveBeetleServer:
                             else:
                                 updatePacket['isReload'] = False
                             
-                            updatePacketQueue.append(updatePacket.copy())
+                            if len(updatePacketQueue) == 0 or updatePacketQueue[-1] != updatePacket:
+                                updatePacketQueue.append(updatePacket.copy())
                         
                     except json.JSONDecodeError:
                         print(f'[ERROR] Invalid JSON payload: {payload}')
