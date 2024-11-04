@@ -34,7 +34,7 @@ print(f'[DEBUG] Player ID: {PLAYER_ID}')
 # BLE
 MAC_ADDR = os.getenv(f'GLOVE_P{PLAYER_ID}')
 print(f'[DEBUG] MAC Address: {MAC_ADDR}')
-IMU_SAMPLES = 60
+IMU_SAMPLES = 59
 
 connectionStatus = {
     'isConnected': False,
