@@ -48,7 +48,7 @@ ACK_TIMEOUT = 0.5
 HANDSHAKE_TIMEOUT = 2
 CRC8 = Calculator(Crc8.CCITT)
 PACKET_SIZE = 15
-DATASIZE = 40
+DATASIZE = 59
 
 # Packet Types
 SYN = 'S'
@@ -93,7 +93,7 @@ dataPacket = {
 
 dataPacketQueue = []
 
-model = tf.keras.models.load_model('gesture_model_hand_reduced.h5')
+model = tf.keras.models.load_model('gesture_model_hand_augmented_59.h5')
 
 # Define the scaler to scale between -1 and 1 (to maintain negative values)
 scaler = MinMaxScaler(feature_range=(-1, 1))
@@ -120,8 +120,8 @@ import threading
 import time
 
 # Global variable to set the size of the overlay
-OVERLAY_WIDTH = 700
-OVERLAY_HEIGHT = 200
+OVERLAY_WIDTH = 1000
+OVERLAY_HEIGHT = 400
 BORDER_RADIUS = 100  # Adjust to make the corners more or less rounded
 TRANSPARENCY_LEVEL = 0  # Adjust for semi-transparency
 
@@ -162,7 +162,7 @@ def show_overlay(predicted_action, duration=2):
     round_rectangle(canvas, 0, 0, OVERLAY_WIDTH, OVERLAY_HEIGHT, radius=BORDER_RADIUS, fill="black")
     
     # Create a label with a bigger font that fills the window (centered in the pill shape)
-    label = tk.Label(canvas, text=predicted_action, font=("Arial", int(OVERLAY_HEIGHT * 0.2), "bold"), fg="white", bg="black")
+    label = tk.Label(canvas, text=predicted_action, font=("Arial", int(OVERLAY_HEIGHT * 0.1), "bold"), fg="white", bg="black")
     label.place(relx=0.5, rely=0.5, anchor="center")
 
     # Close the overlay after a delay using tkinter's after method

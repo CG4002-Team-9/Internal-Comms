@@ -15,7 +15,7 @@ import csv
 # Load environment variables from .env file
 load_dotenv()
 
-NAME_OF_ACTION = "basket"
+NAME_OF_ACTION = "shield_new"
 DEVICE = "GLOVE"      # LEG or GLOVE
 IMU_SAMPLES = 60
 
