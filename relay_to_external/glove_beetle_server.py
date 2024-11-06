@@ -267,7 +267,8 @@ class GloveBeetleServer:
                         "glove_connected": myConnectionStatus['isConnected'],
                         }
                     },
-                    "update": True
+                    "update": True,
+                    "f": True
                     }
                 message_body = json.dumps(message).encode('utf-8')
                 await self.channel.default_exchange.publish(
@@ -304,9 +305,8 @@ class GloveBeetleServer:
                                 print(f'[DEBUG] Player {PLAYER_ID} is reloading')
                             else:
                                 updatePacket['isReload'] = False
-                            
-                            if len(updatePacketQueue) == 0 or updatePacketQueue[-1] != updatePacket:
-                                updatePacketQueue.append(updatePacket.copy())
+
+                            updatePacketQueue.append(updatePacket.copy())
                         
                     except json.JSONDecodeError:
                         print(f'[ERROR] Invalid JSON payload: {payload}')

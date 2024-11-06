@@ -108,7 +108,8 @@ class VestBeetleServer:
                             "vest_connected": myConnectionStatus['isConnected'],
                         }
                     },
-                    "update": True
+                    "update": True,
+                    "f": True
                 }
                 message_body = json.dumps(message).encode('utf-8')
                 await self.channel.default_exchange.publish(
@@ -151,8 +152,7 @@ class VestBeetleServer:
                                     updatePacket['action_type'] = 2
                                 elif player_id_for_action != PLAYER_ID and gotHit:
                                     updatePacket['action_type'] = 1
-                            if len(updatePacketQueue) == 0 or updatePacketQueue[-1] != updatePacket:
-                                updatePacketQueue.append(updatePacket.copy())
+                            updatePacketQueue.append(updatePacket.copy())
                     
                     except json.JSONDecodeError:
                         print(f'[ERROR] Invalid JSON payload: {payload}')

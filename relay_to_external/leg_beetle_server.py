@@ -209,7 +209,8 @@ class LegBeetleServer:
                             "leg_connected": myConnectionStatus['isConnected'],
                         }
                     },
-                    "update": True
+                    "update": True,
+                    "f": True
                 }
                 message_body = json.dumps(message).encode('utf-8')
                 await self.channel.default_exchange.publish(
