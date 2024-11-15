@@ -30,7 +30,7 @@ UPDATE_EVERYONE_EXCHANGE = os.getenv('UPDATE_EVERYONE_EXCHANGE', 'update_everyon
 PLAYER_ID = int(os.getenv('PLAYER_ID', '1'))
 print(f'[DEBUG] Player ID: {PLAYER_ID}')
 
-# BLE
+# BLE variables
 MAC_ADDR = os.getenv(f'LEG_P{PLAYER_ID}')
 IMU_SAMPLES = 40
 
@@ -51,7 +51,9 @@ dataPacket = {
     'isAllImuReceived': False 
 }
 
+# BLE connection
 class ExtendedBLEConnection(myBle.BLEConnection):
+    # Unpack IMU data and store in dataPacket
     def appendImuData(self):
         unpackFormat = "<hhhhhh"
         ax, ay, az, gx, gy, gz = struct.unpack(unpackFormat, self.device.delegate.payload)
@@ -65,6 +67,7 @@ class ExtendedBLEConnection(myBle.BLEConnection):
         dataPacket['gy'][dataPacket['seq']] = gy
         dataPacket['gz'][dataPacket['seq']] = gz
 
+    #  Parse received packet
     def parseRxPacket(self):
         packetType = self.device.delegate.packetType
         seqReceived = self.device.delegate.seqReceived
@@ -77,26 +80,32 @@ class ExtendedBLEConnection(myBle.BLEConnection):
             
             self.appendImuData()
             
+            # Check if all IMU data is received
             while (not dataPacket['isAllImuReceived'] and self.device.waitForNotifications(myBle.IMU_TIMEOUT)):
+                # handle packet
                 if (not self.device.delegate.isRxPacketReady): # in case of fragmentation
                     continue
                 if (self.device.delegate.packetType != myBle.DATA):
                     break
 
+                # get the imu data
                 dataPacket['seq'] = self.device.delegate.seqReceived
                 if (dataPacket['seq'] <= IMU_SAMPLES - 1):  # ignored extra samples
                     self.appendImuData()
                 if (dataPacket['seq'] >= IMU_SAMPLES - 1):
                     dataPacket['isAllImuReceived'] = True
 
+            # all imu data is received
             dataPacket['isAllImuReceived'] = True
             self.imuSeq = 0
             print(f"[BLE] >> All IMU data is received.")
-            
+        
+        # send SYNACK packet to finish the handshake
         elif (packetType == myBle.SYNACK):
             self.sendSYNACK(0)
         
         else:
+            # invalid packet handling
             self.device.delegate.invalidPacketCounter += 1
             print(f"[BLE] Unpack: {packetType} {payload}")
         return packetType
@@ -123,7 +132,7 @@ class ExtendedBLEConnection(myBle.BLEConnection):
                     connectionStatusQueue.append(connectionStatus.copy())
                 await asyncio.sleep(0.1)
 
-# Placeholder functions for Bluetooth communication
+# Functions to get data from BLE and send to RabbitMQ
 def get_imu_data():
     action_occurred = dataPacket['isAllImuReceived'] and dataPacket['imuCounter'] > 30
     ax = dataPacket['ax'].copy()
@@ -147,6 +156,7 @@ def get_imu_data():
     else:
         return None
 
+# RabbitMQ server
 class LegBeetleServer:
     def __init__(self):
         self.rabbitmq_connection = None

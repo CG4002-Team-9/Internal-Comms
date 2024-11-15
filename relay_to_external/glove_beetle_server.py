@@ -5,7 +5,6 @@ import json
 import os
 from dotenv import load_dotenv
 import aio_pika
-import aiomqtt
 from bluepy.btle import BTLEDisconnectError
 import struct
 import myBle
@@ -31,7 +30,7 @@ UPDATE_EVERYONE_EXCHANGE = os.getenv('UPDATE_EVERYONE_EXCHANGE', 'update_everyon
 PLAYER_ID = int(os.getenv('PLAYER_ID', '1'))
 print(f'[DEBUG] Player ID: {PLAYER_ID}')
 
-# BLE
+# BLE variables
 MAC_ADDR = os.getenv(f'GLOVE_P{PLAYER_ID}')
 print(f'[DEBUG] MAC Address: {MAC_ADDR}')
 IMU_SAMPLES = 59
@@ -68,11 +67,12 @@ dataPacket = {
     'isAllImuReceived': False 
 }
 
+# BLE Connection
 class ExtendedBLEConnection(myBle.BLEConnection):
+    # Unpack IMU data and store in dataPacket
     def appendImuData(self):
         unpackFormat = "<hhhhhh"
         ax, ay, az, gx, gy, gz = struct.unpack(unpackFormat, self.device.delegate.payload)
-        # print(f"[BLE]    Saved {ax}, {ay}, {az}, {gx}, {gy}, {gz}")
 
         dataPacket['imuCounter'] += 1
         dataPacket['ax'][dataPacket['seq']] = ax
@@ -82,11 +82,13 @@ class ExtendedBLEConnection(myBle.BLEConnection):
         dataPacket['gy'][dataPacket['seq']] = gy
         dataPacket['gz'][dataPacket['seq']] = gz
 
+    # Parse received packet
     def parseRxPacket(self):
         packetType = self.device.delegate.packetType
         seqReceived = self.device.delegate.seqReceived
         payload = self.device.delegate.payload
 
+        # get the shoot data
         if (packetType == myBle.SHOOT):
             self.sendACK(seqReceived)
             if (shootPacket['seq'] != seqReceived):
@@ -97,12 +99,14 @@ class ExtendedBLEConnection(myBle.BLEConnection):
         
         elif (packetType == myBle.DATA):
             dataPacket['seq'] = self.device.delegate.seqReceived
-            if (dataPacket['seq'] >= 5): # ignored those samples that stuck in buffer
+            if (dataPacket['seq'] >= 5): # ignored those extra samples from previous set that stuck in buffer
                 return
             
             self.appendImuData()
-            
+
+            # Check if all IMU data is received
             while (not dataPacket['isAllImuReceived'] and self.device.waitForNotifications(myBle.IMU_TIMEOUT)):
+                # handle packet
                 if (not self.device.delegate.isRxPacketReady): # in case of fragmentation
                     continue
                 if (self.device.delegate.packetType != myBle.DATA): # receive other packet; eg. sHOOT
@@ -111,20 +115,24 @@ class ExtendedBLEConnection(myBle.BLEConnection):
                     self.parseRxPacket()
                     return
 
+                # get the imu data
                 dataPacket['seq'] = self.device.delegate.seqReceived
-                if (dataPacket['seq'] <= IMU_SAMPLES - 1):  # ignored extra samples
+                if (dataPacket['seq'] <= IMU_SAMPLES - 1): # save IMU data
                     self.appendImuData()
-                if (dataPacket['seq'] >= IMU_SAMPLES - 1):
+                if (dataPacket['seq'] >= IMU_SAMPLES - 1): # all IMU data is received
                     dataPacket['isAllImuReceived'] = True
 
+            # all IMU data is received
             dataPacket['isAllImuReceived'] = True
             self.imuSeq = 0
             print(f"[BLE] >> All IMU data is received.")
-            
+        
+        # send SYNACK packet to finish the handshake
         elif (packetType == myBle.SYNACK):
             self.sendSYNACK(0)
         
         else:
+            # invalid packet handling
             self.device.delegate.invalidPacketCounter += 1
             print(f"[BLE] Unpack: {packetType} {payload}")
         
@@ -155,7 +163,7 @@ class ExtendedBLEConnection(myBle.BLEConnection):
                     connectionStatusQueue.append(connectionStatus.copy())
                 await asyncio.sleep(0.1)
 
-# Placeholder functions for Bluetooth communication
+# Functions to get data from BLE and send to RabbitMQ
 def get_imu_data():
     action_occurred = dataPacket['isAllImuReceived'] and dataPacket['imuCounter'] > (IMU_SAMPLES - 5)
     ax = dataPacket['ax'].copy()
@@ -191,6 +199,7 @@ def get_gun_action():
     else:
         return None
 
+# RabbitMQ server
 class GloveBeetleServer:
     def __init__(self):
         self.rabbitmq_connection = None
@@ -233,7 +242,6 @@ class GloveBeetleServer:
                     'imu_device': 'glove'
                 }
                 print(f"[DEBUG] Length of IMU Data: {length}")
-                # print(f"[DEBUG] IMU Data: {message}")
                 message_body = json.dumps(message).encode('utf-8')
                 await self.channel.default_exchange.publish(
                     aio_pika.Message(body=message_body),

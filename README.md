@@ -1,4 +1,5 @@
 # Internal-Comms
+* The relay servers for gloves, vests, and legs beetles are in the `relay_to_external` directory.
 
 ## Setup
 Install libglib2.0-dev, required for bluepy library.
@@ -37,4 +38,3 @@ To view the logs
 ```
 pm2 logs
 ```
-

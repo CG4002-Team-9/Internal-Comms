@@ -3,7 +3,7 @@ module.exports = {
 		{
 			name: "glove_beetle_server",
 			script: "python -u glove_beetle_server.py",
-			instances: 1,
+			instances: 2,
 			increment_var: "PLAYER_ID",
 			env: {
 				PLAYER_ID: 1,
@@ -12,7 +12,7 @@ module.exports = {
 		{
 			name: "leg_beetle_server",
 			script: "python -u leg_beetle_server.py",
-			instances: 1,
+			instances: 2,
 			increment_var: "PLAYER_ID",
 			env: {
 				PLAYER_ID: 1,
@@ -21,7 +21,7 @@ module.exports = {
 		{
 			name: "vest_beetle_server",
 			script: "python -u vest_beetle_server.py",
-			instances: 1,
+			instances: 2,
 			increment_var: "PLAYER_ID",
 			env: {
 				PLAYER_ID: 1,

@@ -5,7 +5,6 @@ import json
 import os
 from dotenv import load_dotenv
 import aio_pika
-import aiomqtt
 import collections
 
 from bluepy.btle import BTLEDisconnectError
@@ -30,7 +29,7 @@ UPDATE_EVERYONE_EXCHANGE = os.getenv('UPDATE_EVERYONE_EXCHANGE', 'update_everyon
 PLAYER_ID = int(os.getenv('PLAYER_ID', '2'))
 print(f'[DEBUG] Player ID: {PLAYER_ID}')
 
-# BLE
+# BLE variables
 MAC_ADDR = os.getenv(f'VEST_P{PLAYER_ID}')
 print(f'[DEBUG] MAC Address: {MAC_ADDR}')
 
@@ -48,6 +47,7 @@ updatePacket = {
 connectionStatusQueue = collections.deque()
 updatePacketQueue = collections.deque()
 
+# BLE connection
 class ExtendedBLEConnection(myBle.BLEConnection):
     async def run(self):
         while True:
@@ -74,6 +74,7 @@ class ExtendedBLEConnection(myBle.BLEConnection):
                     connectionStatusQueue.append(connectionStatus.copy())
                 await asyncio.sleep(0.1)
 
+# RabbitMQ server
 class VestBeetleServer:
     def __init__(self):
         self.rabbitmq_connection = None

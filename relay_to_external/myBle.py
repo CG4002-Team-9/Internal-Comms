@@ -31,7 +31,7 @@ class MyDelegate(btle.DefaultDelegate):
         self.seqReceived = 0
         self.invalidPacketCounter = 0
 
-    def handleNotification(self, cHandle, data):
+    def handleNotification(self, cHandle, data): # handle fragmented packets and checksum
         self.isRxPacketReady = False
         self.rxPacketBuffer += data
 
@@ -62,7 +62,7 @@ class BLEConnection:
         self.beetleSerial = None
         self.isHandshakeRequire = True
 
-    def establishConnection(self):
+    def establishConnection(self): # connect to the beetle
         print("[BLE] >> Searching and Connecting to the Beetle...")
         try:
             self.device.connect(self.macAddr)
@@ -75,25 +75,25 @@ class BLEConnection:
         print("[BLE] >> Connection is established.")
         return True
 
-    def sendSYN(self, seq):
+    def sendSYN(self, seq): # send SYN packet to the beetle
         print(f"[BLE] >> Send SYN: {seq}")
         packet = bytes(SYN, 'utf-8') + bytes([np.uint8(seq)]) + bytes([0] * (PACKET_SIZE - 3))
         packet = packet + (bytes)([np.uint8(CRC8.checksum(packet))])
         self.beetleSerial.write(packet)
         
-    def sendSYNACK(self, seq):
+    def sendSYNACK(self, seq): # send SYNACK packet to the beetle
         print(f"[BLE] >> Send SYNACK: {seq}")
         packet = bytes(SYNACK, 'utf-8') + bytes([np.uint8(seq)]) + bytes([0] * (PACKET_SIZE - 3))
         packet = packet + (bytes)([np.uint8(CRC8.checksum(packet))])
         self.beetleSerial.write(packet)
 
-    def sendACK(self, seq):
+    def sendACK(self, seq): # send ACK packet to the beetle
         print(f"[BLE]    Send ACK: {seq}")
         packet = bytes(ACK, 'utf-8') + bytes([np.uint8(seq)]) + bytes([0] * (PACKET_SIZE - 3))
         packet = packet + (bytes)([np.uint8(CRC8.checksum(packet))])
         self.beetleSerial.write(packet)
 
-    def performHandShake(self, seq, connectionStatus, connectionStatusQueue):
+    def performHandShake(self, seq, connectionStatus, connectionStatusQueue): # perform handshake with the beetle
         print("[BLE] >> Performing Handshake...")
         self.sendSYN(seq)
         if (self.device.waitForNotifications(HANDSHAKE_TIMEOUT) and self.device.delegate.isRxPacketReady):
@@ -111,7 +111,7 @@ class BLEConnection:
         print("[BLE] >> Handshake Failed.")
         return False
     
-    def sendUPDATE(self, updatePacket, myUpdatePacket, isVestUpdate=False, isGloveUpdate=False):
+    def sendUPDATE(self, updatePacket, myUpdatePacket, isVestUpdate=False, isGloveUpdate=False): # send update packet to the beetle
         print("[BLE] >> Sending UPDATE...")
         print(f"[BLE] >> Update Packet: {myUpdatePacket}")
 
@@ -143,7 +143,7 @@ class BLEConnection:
             elif (self.isHandshakeRequire):
                 break
 
-        # after 5 attempts of sending update
+        # after 5 attempts of sending update, then rehandshake
         print("[BLE] >> Update Failed.")
         self.isHandshakeRequire = True
     
